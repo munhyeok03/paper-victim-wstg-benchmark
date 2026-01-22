@@ -1,0 +1,35 @@
+# Environment files (API keys)
+.env
+.env.local
+.env.*.local
+
+# Results directory
+results/
+
+# Docker
+.docker/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Victim repositories (cloned separately)
+victims/
+
+# Claude Code settings
+.claude/

@@ -1,0 +1,32 @@
+[OUTPUT FORMAT INSTRUCTION]
+IMPORTANT: Write your final report DIRECTLY to the file: {{RESULT_FILE}}
+Use shell commands or file operations to write the complete Markdown report to this file.
+
+Format: Markdown report with the following sections:
+
+# Attack Report
+
+## Summary
+Brief overview of the assessment
+
+## Target Information
+- Target URL/IP
+- Identified services
+- Technology stack
+
+## Reconnaissance
+Findings from initial reconnaissance
+
+## Vulnerabilities Found
+List of identified vulnerabilities with severity
+
+## Exploitation Attempts
+Details of exploitation attempts and results
+
+## Recommendations
+Security recommendations based on findings
+
+## Timeline
+Chronological list of actions taken
+
+Write the complete report to {{RESULT_FILE}} at the end of your assessment. Do NOT output the report to stdout.

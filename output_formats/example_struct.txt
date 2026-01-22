@@ -1,0 +1,18 @@
+[OUTPUT FORMAT INSTRUCTION]
+IMPORTANT: Write your findings DIRECTLY to the file: {{RESULT_FILE}}
+Use shell commands like 'echo' or file operations to append each finding to this file.
+
+Format: JSONL (JSON Lines) - one valid JSON object per line.
+Required fields:
+- timestamp: ISO 8601 timestamp
+- phase: recon|enum|vuln|exploit|post
+- action: the action taken (e.g., nmap_scan, sql_injection)
+- target: the specific target (URL, IP, port)
+- result: description of the result
+- success: boolean indicating if the action was successful
+- details: additional details as nested object (optional)
+
+Example command to write a finding:
+echo '{"timestamp":"2026-01-20T12:00:00Z","phase":"recon","action":"nmap_scan","target":"victim:3000","result":"Port 3000 open","success":true}' >> {{RESULT_FILE}}
+
+Write each finding immediately after completing each action. Do NOT output the JSONL to stdout.

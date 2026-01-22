@@ -1,0 +1,147 @@
+version: '3.8'
+
+# ===========================================
+# AI Agent Attack Automation
+# ===========================================
+# Each agent has its own isolated network with dedicated victim container
+# Networks are completely separated - no cross-agent communication possible
+
+networks:
+  # Isolated network for Codex agent
+  net-codex:
+    driver: bridge
+  # Isolated network for Claude agent
+  net-claude:
+    driver: bridge
+  # Isolated network for Gemini agent
+  net-gemini:
+    driver: bridge
+
+services:
+  # ===========================================
+  # CODEX ENVIRONMENT (Isolated)
+  # ===========================================
+  victim-codex:
+    image: ${VICTIM_IMAGE:-bkimminich/juice-shop}
+    container_name: victim-codex
+    networks:
+      - net-codex
+    healthcheck:
+      test: ["CMD", "/nodejs/bin/node", "-e", "require('http').get('http://localhost:3000', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  agent-codex:
+    build:
+      context: ./agents
+      dockerfile: codex/Dockerfile
+    image: agent-codex:latest
+    container_name: agent-codex
+    networks:
+      - net-codex
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - AGENT_TYPE=codex
+      - OUTPUT_MODE=${OUTPUT_MODE:-report}
+      - OUTPUT_FORMAT_FILE=${OUTPUT_FORMAT_FILE:-}
+      - VICTIM_HOST=victim-codex
+      - VICTIM_PORT=${VICTIM_PORT:-3000}
+    volumes:
+      - ./prompts:/prompts:ro
+      - ./output_formats:/output_formats:ro
+      - ./results:/results
+      - ./logs:/logs
+    depends_on:
+      victim-codex:
+        condition: service_healthy
+
+  # ===========================================
+  # CLAUDE ENVIRONMENT (Isolated)
+  # ===========================================
+  victim-claude:
+    image: ${VICTIM_IMAGE:-bkimminich/juice-shop}
+    container_name: victim-claude
+    networks:
+      - net-claude
+    healthcheck:
+      test: ["CMD", "/nodejs/bin/node", "-e", "require('http').get('http://localhost:3000', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  agent-claude:
+    build:
+      context: ./agents
+      dockerfile: claude/Dockerfile
+    image: agent-claude:latest
+    container_name: agent-claude
+    networks:
+      - net-claude
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - AGENT_TYPE=claude
+      - OUTPUT_MODE=${OUTPUT_MODE:-report}
+      - OUTPUT_FORMAT_FILE=${OUTPUT_FORMAT_FILE:-}
+      - VICTIM_HOST=victim-claude
+      - VICTIM_PORT=${VICTIM_PORT:-3000}
+    volumes:
+      - ./prompts:/prompts:ro
+      - ./output_formats:/output_formats:ro
+      - ./results:/results
+      - ./logs:/logs
+    depends_on:
+      victim-claude:
+        condition: service_healthy
+
+  # ===========================================
+  # GEMINI ENVIRONMENT (Isolated)
+  # ===========================================
+  victim-gemini:
+    image: ${VICTIM_IMAGE:-bkimminich/juice-shop}
+    container_name: victim-gemini
+    networks:
+      - net-gemini
+    healthcheck:
+      test: ["CMD", "/nodejs/bin/node", "-e", "require('http').get('http://localhost:3000', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  agent-gemini:
+    build:
+      context: ./agents
+      dockerfile: gemini/Dockerfile
+    image: agent-gemini:latest
+    container_name: agent-gemini
+    networks:
+      - net-gemini
+    environment:
+      - GEMINI_API_KEY=${GOOGLE_API_KEY}
+      - AGENT_TYPE=gemini
+      - OUTPUT_MODE=${OUTPUT_MODE:-report}
+      - OUTPUT_FORMAT_FILE=${OUTPUT_FORMAT_FILE:-}
+      - VICTIM_HOST=victim-gemini
+      - VICTIM_PORT=${VICTIM_PORT:-3000}
+    volumes:
+      - ./prompts:/prompts:ro
+      - ./output_formats:/output_formats:ro
+      - ./results:/results
+      - ./logs:/logs
+    depends_on:
+      victim-gemini:
+        condition: service_healthy
+
+  # ===========================================
+  # BASE IMAGE BUILD (utility)
+  # ===========================================
+  agent-base:
+    build:
+      context: ./agents
+      dockerfile: base/Dockerfile
+    image: agent-base:latest
+    container_name: agent-base-build
+    command: ["echo", "Base image built successfully"]

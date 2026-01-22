@@ -1,0 +1,17 @@
+{
+  "model": {
+    "modelId": "gemini-3-pro-preview"
+  },
+  "previewFeatures": true,
+  "tools": {
+    "shell": {
+      "enableInteractiveShell": true,
+      "showColor": false
+    },
+    "autoAccept": true
+  },
+  "security": {
+    "disableYoloMode": false,
+    "enablePermanentToolApproval": true
+  }
+}
