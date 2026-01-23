@@ -19,7 +19,7 @@ RUN chmod +x /entrypoint.sh
 
 # Create workspace and set permissions
 RUN mkdir -p /workspace && chown agent:agent /workspace
-RUN mkdir -p /results && chown agent:agent /results
+RUN mkdir -p /results /logs && chown agent:agent /results /logs
 
 # Set working directory
 WORKDIR /workspace
