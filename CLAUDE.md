@@ -51,7 +51,7 @@ attack-automation/
 │   ├── litellm_config.yaml    # LiteLLM 프록시 설정
 │   ├── custom_logger.py       # 커스텀 콜백 (usage.jsonl 기록)
 │   └── logs/
-│       ├── usage.jsonl        # API 호출별 토큰/비용/레이턴시
+│       ├── usage.jsonl        # API 호출별 전체 대화 + 메트릭
 │       └── *_proxy.log        # 프록시 디버그 로그
 ├── scripts/                   # 유틸리티
 │   └── aggregate_metrics.py   # 메트릭 집계 스크립트
@@ -60,8 +60,7 @@ attack-automation/
 ├── output_formats/            # 출력 형식 템플릿
 │   ├── example_struct.txt     # JSONL 출력 템플릿
 │   └── example_report.txt     # Markdown 보고서 템플릿
-├── results/                   # 구조화된 결과 (JSONL/Markdown)
-├── logs/                      # 모델 원본 출력 (디버깅용)
+├── results/                   # 구조화된 결과 (JSONL/Markdown) + 세션 대화
 ├── docker-compose.yml         # 컨테이너 오케스트레이션
 ├── run.sh                     # 메인 실행 스크립트
 ├── .env                       # API 키 설정 (git ignore)
@@ -121,11 +120,12 @@ cp .env.example .env
 ### 수집 메트릭
 
 ```jsonl
-{"timestamp":"2026-01-26T08:47:39Z","model":"claude-opus-4-5-20251101","provider":null,"success":true,"latency_ms":2732.81,"prompt_tokens":74169,"completion_tokens":227,"total_tokens":74396,"cache_read_tokens":73864,"cache_creation_tokens":305,"cost_usd":0.0445}
+{"timestamp":"2026-01-26T08:47:39Z","agent":"claude","model":"claude-opus-4-5-20251101","success":true,"latency_ms":2732.81,"prompt_tokens":74169,"completion_tokens":227,"total_tokens":74396,"cost_usd":0.0445}
 ```
 
 | 필드 | 설명 |
 |------|------|
+| `agent` | 에이전트 타입 (claude, codex, gemini) |
 | `model` | 사용된 모델 |
 | `prompt_tokens` | 입력 토큰 수 |
 | `completion_tokens` | 출력 토큰 수 |
@@ -160,9 +160,39 @@ python3 scripts/aggregate_metrics.py metrics/logs/ --output summary.json
 
 | 디렉토리 | 내용 | 용도 |
 |----------|------|------|
-| `logs/` | 모델의 전체 출력 (stdout/stderr) | 디버깅 |
-| `results/` | 구조화된 결과 (JSONL/Markdown) | 취약점 분석 |
-| `metrics/` | 토큰/비용/레이턴시 데이터 | 비용 분석 |
+| `results/` | 구조화된 결과 (JSONL/Markdown) + 세션 대화 | 취약점 분석 |
+| `metrics/logs/` | 전체 API 호출 로그 (대화 내용 포함) | 분석/디버깅 |
+
+### 대화 로그 (`metrics/logs/usage.jsonl`)
+
+모든 API 호출의 전체 대화 내용이 LiteLLM 프록시를 통해 자동 캡처됩니다:
+
+```jsonl
+{
+  "timestamp": "2026-01-26T08:47:39Z",
+  "agent": "claude",
+  "model": "claude-opus-4-5-20251101",
+  "success": true,
+  "latency_ms": 2732.81,
+  "prompt_tokens": 74169,
+  "completion_tokens": 227,
+  "messages": [
+    {"role": "user", "content": "Target: http://victim:3000\n\nPerform security..."},
+    {"role": "assistant", "content": "I'll begin the assessment..."}
+  ],
+  "response": "I'll begin the security assessment by running nmap...",
+  "cost_usd": 0.0445
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `messages` | 전체 입력 메시지 배열 (대화 히스토리) |
+| `response` | 모델 응답 텍스트 |
+
+### 세션별 대화 추출
+
+각 실행 세션의 대화만 타임스탬프 기반으로 `results/{timestamp}_conversations.jsonl`에 자동 추출됩니다.
 
 ### Struct 모드 (`--mode struct`)
 ```jsonl
@@ -195,6 +225,8 @@ python3 scripts/aggregate_metrics.py metrics/logs/ --output summary.json
 - **스캐닝**: nmap, nikto, dirb
 - **공격**: sqlmap
 - **네트워크**: curl, wget, netcat, dnsutils
+- **검색**: ripgrep (rg)
+- **프로세스**: procps (ps, pgrep, pkill, top)
 - **유틸리티**: jq, git, python3, nodejs
 
 ## Victim 서버 옵션

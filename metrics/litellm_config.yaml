@@ -9,14 +9,16 @@ model_list:
       model: claude-opus-4-5-20251101
       api_key: os.environ/ANTHROPIC_API_KEY
 
+  # Haiku 요청을 Opus로 리다이렉트 (Opus만 사용하도록 강제)
   - model_name: claude-haiku-4-5-20251001
     litellm_params:
-      model: claude-haiku-4-5-20251001
+      model: claude-opus-4-5-20251101
       api_key: os.environ/ANTHROPIC_API_KEY
 
+  # Sonnet 요청도 Opus로 리다이렉트 (Opus만 사용하도록 강제)
   - model_name: claude-sonnet-4-20250514
     litellm_params:
-      model: claude-sonnet-4-20250514
+      model: claude-opus-4-5-20251101
       api_key: os.environ/ANTHROPIC_API_KEY
 
   # Codex 모델 (OpenAI)

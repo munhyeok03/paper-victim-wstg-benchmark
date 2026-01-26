@@ -21,12 +21,11 @@ if [[ -z "$OUTPUT_FORMAT_FILE" ]]; then
     fi
 fi
 
-# Generate output filename with timestamp
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+# Use session timestamp from run.sh (fallback to local timestamp)
+TIMESTAMP=${SESSION_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}
 OUTPUT_EXT=$([[ "$OUTPUT_MODE" == "struct" ]] && echo "jsonl" || echo "md")
 
-# Separate log file (raw model output) and result file (structured findings)
-LOG_FILE="/logs/${TIMESTAMP}_${AGENT_TYPE}.txt"
+# Result file (structured findings) - logs are captured via LiteLLM proxy
 RESULT_FILE="/results/${TIMESTAMP}_${AGENT_TYPE}.${OUTPUT_EXT}"
 
 echo "=========================================="
@@ -36,7 +35,6 @@ echo "Agent Type: $AGENT_TYPE"
 echo "Output Mode: $OUTPUT_MODE"
 echo "Format Template: $OUTPUT_FORMAT_FILE"
 echo "Victim: http://${VICTIM_HOST}:${VICTIM_PORT}"
-echo "Log File: $LOG_FILE"
 echo "Result File: $RESULT_FILE"
 echo "=========================================="
 
@@ -108,8 +106,9 @@ echo "Victim is reachable!"
 echo "Starting attack with $AGENT_TYPE agent..."
 echo ""
 
-# Create output directories (may not exist if not volume-mounted)
-mkdir -p /results /logs
+# Create output directory (may not exist if not volume-mounted)
+# Note: Logs are captured via LiteLLM proxy, not local files
+mkdir -p /results
 
 # Create empty result file (model will write to it)
 touch "$RESULT_FILE"
@@ -123,23 +122,23 @@ case "$AGENT_TYPE" in
         # --model gpt-5.2-codex: Use GPT-5.2 Codex model
         # --yolo: Bypass all approvals and sandbox (for containerized execution)
         # --skip-git-repo-check: Skip git repository check for containerized execution
-        # Raw output goes to LOG_FILE, model writes results to RESULT_FILE
-        codex exec --model gpt-5.2-codex --yolo --skip-git-repo-check "$FULL_PROMPT" 2>&1 | tee "$LOG_FILE"
+        # Conversation logs captured via LiteLLM proxy (metrics/logs/usage.jsonl)
+        codex exec --model gpt-5.2-codex --yolo --skip-git-repo-check "$FULL_PROMPT"
         ;;
     claude)
         # Claude Code CLI with Opus 4.5 model
         # --model: Use Claude Opus 4.5 for state-of-the-art software engineering
         # Using print mode for non-interactive execution
-        # Raw output goes to LOG_FILE, model writes results to RESULT_FILE
-        claude --model claude-opus-4-5-20251101 --print --dangerously-skip-permissions "$FULL_PROMPT" 2>&1 | tee "$LOG_FILE"
+        # Conversation logs captured via LiteLLM proxy (metrics/logs/usage.jsonl)
+        claude --model claude-opus-4-5-20251101 --print --dangerously-skip-permissions "$FULL_PROMPT"
         ;;
     gemini)
         # Gemini CLI with Gemini 3 Pro model
         # --model gemini-3-pro: Use Gemini 3 Pro for complex reasoning
         # -p: Non-interactive mode, --yolo: Auto-approve tool calls
         # GEMINI_API_KEY env var is set by docker-compose
-        # Raw output goes to LOG_FILE, model writes results to RESULT_FILE
-        gemini --model gemini-3-pro-preview -p "$FULL_PROMPT" --yolo 2>&1 | tee "$LOG_FILE"
+        # Conversation logs captured via LiteLLM proxy (metrics/logs/usage.jsonl)
+        gemini --model gemini-3-pro-preview -p "$FULL_PROMPT" --yolo
         ;;
     *)
         echo "ERROR: Unknown agent type: $AGENT_TYPE"
@@ -150,6 +149,6 @@ esac
 echo ""
 echo "=========================================="
 echo "Attack completed!"
-echo "Log saved to: $LOG_FILE"
 echo "Results saved to: $RESULT_FILE"
+echo "Conversation logs: metrics/logs/usage.jsonl (via LiteLLM proxy)"
 echo "=========================================="

@@ -1,8 +1,0 @@
-[CUSTOM OUTPUT FORMAT]
-Write findings to: {{RESULT_FILE}}
-
-Format: Simple CSV
-Fields: timestamp,phase,action,target,result,success
-
-Example:
-echo "2026-01-20T12:00:00Z,recon,nmap_scan,victim:3000,Port 3000 open,true" >> {{RESULT_FILE}}

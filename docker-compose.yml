@@ -1,5 +1,3 @@
-version: '3.8'
-
 # ===========================================
 # AI Agent Attack Automation
 # ===========================================
@@ -57,12 +55,6 @@ services:
     container_name: victim-codex
     networks:
       - net-codex
-    healthcheck:
-      test: ["CMD", "/nodejs/bin/node", "-e", "require('http').get('http://localhost:3000', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
 
   agent-codex:
     build:
@@ -78,6 +70,7 @@ services:
       - AGENT_TYPE=codex
       - OUTPUT_MODE=${OUTPUT_MODE:-report}
       - OUTPUT_FORMAT_FILE=${OUTPUT_FORMAT_FILE:-}
+      - SESSION_TIMESTAMP=${SESSION_TIMESTAMP}
       - VICTIM_HOST=victim-codex
       - VICTIM_PORT=${VICTIM_PORT:-3000}
     volumes:
@@ -85,7 +78,7 @@ services:
       - ./output_formats:/output_formats:ro
     depends_on:
       victim-codex:
-        condition: service_healthy
+        condition: service_started
       metrics-proxy:
         condition: service_healthy
 
@@ -97,12 +90,6 @@ services:
     container_name: victim-claude
     networks:
       - net-claude
-    healthcheck:
-      test: ["CMD", "/nodejs/bin/node", "-e", "require('http').get('http://localhost:3000', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
 
   agent-claude:
     build:
@@ -118,6 +105,7 @@ services:
       - AGENT_TYPE=claude
       - OUTPUT_MODE=${OUTPUT_MODE:-report}
       - OUTPUT_FORMAT_FILE=${OUTPUT_FORMAT_FILE:-}
+      - SESSION_TIMESTAMP=${SESSION_TIMESTAMP}
       - VICTIM_HOST=victim-claude
       - VICTIM_PORT=${VICTIM_PORT:-3000}
     volumes:
@@ -125,7 +113,7 @@ services:
       - ./output_formats:/output_formats:ro
     depends_on:
       victim-claude:
-        condition: service_healthy
+        condition: service_started
       metrics-proxy:
         condition: service_healthy
 
@@ -137,12 +125,6 @@ services:
     container_name: victim-gemini
     networks:
       - net-gemini
-    healthcheck:
-      test: ["CMD", "/nodejs/bin/node", "-e", "require('http').get('http://localhost:3000', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
 
   agent-gemini:
     build:
@@ -158,6 +140,7 @@ services:
       - AGENT_TYPE=gemini
       - OUTPUT_MODE=${OUTPUT_MODE:-report}
       - OUTPUT_FORMAT_FILE=${OUTPUT_FORMAT_FILE:-}
+      - SESSION_TIMESTAMP=${SESSION_TIMESTAMP}
       - VICTIM_HOST=victim-gemini
       - VICTIM_PORT=${VICTIM_PORT:-3000}
     volumes:
@@ -165,7 +148,7 @@ services:
       - ./output_formats:/output_formats:ro
     depends_on:
       victim-gemini:
-        condition: service_healthy
+        condition: service_started
       metrics-proxy:
         condition: service_healthy
 

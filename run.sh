@@ -268,9 +268,9 @@ extract_results() {
     local agent=$1
     log_info "[$agent] Extracting results from container..."
 
-    # Extract results and logs from the container's tmpfs
+    # Extract results from the container's tmpfs
+    # Note: Conversation logs are captured via LiteLLM proxy (metrics/logs/usage.jsonl)
     docker cp "agent-$agent:/results/." "./results/" 2>/dev/null || true
-    docker cp "agent-$agent:/logs/." "./logs/" 2>/dev/null || true
 
     log_info "[$agent] Results extracted"
 }
@@ -295,10 +295,11 @@ extract_metrics() {
 
     # Use aggregate_metrics.py script if available, otherwise inline Python
     if [[ -f "./scripts/aggregate_metrics.py" ]]; then
-        python3 ./scripts/aggregate_metrics.py "./metrics/logs" --output "./metrics/${timestamp}_summary.json"
+        python3 ./scripts/aggregate_metrics.py "./metrics/logs" --output "./metrics/${timestamp}_summary.json" \
+            --start "$SESSION_START_TIME" --end "$SESSION_END_TIME"
     else
-        # Fallback: inline aggregation
-        python3 - << 'PYEOF' "./metrics/logs" "./metrics/${timestamp}_summary.json"
+        # Fallback: inline aggregation with time filtering
+        python3 - << 'PYEOF' "./metrics/logs" "./metrics/${timestamp}_summary.json" "$SESSION_START_TIME" "$SESSION_END_TIME"
 import sys
 import json
 from pathlib import Path
@@ -307,6 +308,8 @@ from datetime import datetime
 
 log_dir = sys.argv[1]
 output_file = sys.argv[2]
+start_time = sys.argv[3] if len(sys.argv) > 3 else None
+end_time = sys.argv[4] if len(sys.argv) > 4 else None
 
 metrics = defaultdict(lambda: {
     "calls": 0,
@@ -325,6 +328,12 @@ try:
                 continue
             try:
                 entry = json.loads(line)
+                # Time filtering
+                timestamp = entry.get("timestamp", "")
+                if start_time and timestamp < start_time:
+                    continue
+                if end_time and timestamp > end_time:
+                    continue
                 model = entry.get("model", "unknown")
                 metrics[model]["calls"] += 1
                 metrics[model]["input_tokens"] += entry.get("prompt_tokens", 0)
@@ -337,6 +346,8 @@ try:
 
     result = {
         "generated_at": datetime.now().isoformat(),
+        "session_start": start_time,
+        "session_end": end_time,
         "models": dict(metrics),
         "totals": {
             "total_calls": sum(m["calls"] for m in metrics.values()),
@@ -369,19 +380,24 @@ run_agent() {
     # Start victim for this agent
     docker compose up -d "victim-$agent"
 
-    # Wait for victim to be healthy (using Docker's built-in healthcheck)
-    log_info "[$agent] Waiting for victim to be healthy..."
+    # Wait for victim to be reachable (entrypoint.sh also waits, but we check here for early failure detection)
+    log_info "[$agent] Waiting for victim to start..."
     local max_wait=120
     local waited=0
-    while [[ "$(docker inspect --format='{{.State.Health.Status}}' "victim-$agent" 2>/dev/null)" != "healthy" ]]; do
+    while ! docker exec "victim-$agent" sh -c "wget -q --spider http://localhost:${VICTIM_PORT}/ 2>/dev/null || curl -sf http://localhost:${VICTIM_PORT}/ >/dev/null 2>&1" 2>/dev/null; do
+        # For distroless containers, just check if the container is running
+        if [[ "$(docker inspect --format='{{.State.Running}}' "victim-$agent" 2>/dev/null)" != "true" ]]; then
+            log_error "[$agent] Victim container stopped unexpectedly"
+            return 1
+        fi
         sleep 2
         waited=$((waited + 2))
         if [[ $waited -ge $max_wait ]]; then
-            log_error "[$agent] Victim did not become healthy after ${max_wait}s"
-            return 1
+            log_warn "[$agent] Victim check timed out, proceeding (entrypoint will wait)"
+            break
         fi
     done
-    log_info "[$agent] Victim is healthy"
+    log_info "[$agent] Victim container is running"
 
     # Run agent
     log_info "[$agent] Executing attack..."
@@ -402,6 +418,9 @@ run_agent() {
 main() {
     parse_args "$@"
     validate_inputs
+
+    # Generate session timestamp (shared across all output files)
+    export SESSION_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
     echo ""
     echo -e "${GREEN}========================================${NC}"
@@ -442,10 +461,9 @@ main() {
 
     # Create output directories
     mkdir -p results         # Structured findings (JSONL/Markdown)
-    mkdir -p logs            # Raw model output (debugging)
     mkdir -p prompts
     mkdir -p output_formats  # Output format templates
-    mkdir -p metrics/logs    # Token/call metrics from LiteLLM proxy
+    mkdir -p metrics/logs    # Token/cost/conversation metrics from LiteLLM proxy
 
     # Copy prompt to prompts directory (skip if same file)
     local prompt_realpath=$(realpath "$PROMPT_FILE")
@@ -458,6 +476,10 @@ main() {
     if [[ "$BUILD_IMAGES" == "true" ]] || ! docker images | grep -q "agent-base"; then
         build_images
     fi
+
+    # Record session start time for filtering logs
+    SESSION_START_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    export SESSION_START_TIME
 
     # Start metrics proxy
     log_step "Starting metrics proxy..."
@@ -487,20 +509,20 @@ main() {
             docker compose up -d "victim-$agent"
         done
 
-        # Wait for all victims to be healthy (using Docker's built-in healthcheck)
-        log_info "Waiting for all victims to be healthy..."
+        # Wait for all victim containers to start (entrypoint.sh handles actual connectivity check)
+        log_info "Waiting for all victim containers to start..."
         for agent in "${AGENTS[@]}"; do
-            local max_wait=120
+            local max_wait=60
             local waited=0
-            while [[ "$(docker inspect --format='{{.State.Health.Status}}' "victim-$agent" 2>/dev/null)" != "healthy" ]]; do
+            while [[ "$(docker inspect --format='{{.State.Running}}' "victim-$agent" 2>/dev/null)" != "true" ]]; do
                 sleep 2
                 waited=$((waited + 2))
                 if [[ $waited -ge $max_wait ]]; then
-                    log_error "victim-$agent did not become healthy after ${max_wait}s"
+                    log_error "victim-$agent did not start after ${max_wait}s"
                     exit 1
                 fi
             done
-            log_info "  victim-$agent: ready"
+            log_info "  victim-$agent: started"
         done
 
         # Run all agents in parallel
@@ -544,9 +566,26 @@ main() {
         done
     fi
 
-    # Extract metrics before cleanup
-    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    extract_metrics "$TIMESTAMP"
+    # Record session end time
+    SESSION_END_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+    # Extract metrics before cleanup (use session timestamp for consistency)
+    extract_metrics "$SESSION_TIMESTAMP"
+
+    # Extract session-specific conversation logs from usage.jsonl (per agent)
+    log_step "Extracting session conversation logs..."
+    if [[ -f "./metrics/logs/usage.jsonl" ]]; then
+        for agent in "${AGENTS[@]}"; do
+            jq -c --arg s "$SESSION_START_TIME" --arg e "$SESSION_END_TIME" --arg a "$agent" \
+                'select(.timestamp >= $s and .timestamp <= $e and .agent == $a)' \
+                "./metrics/logs/usage.jsonl" > "./results/${SESSION_TIMESTAMP}_${agent}_conversations.jsonl" 2>/dev/null || true
+            if [[ -s "./results/${SESSION_TIMESTAMP}_${agent}_conversations.jsonl" ]]; then
+                log_info "Session conversations saved to ./results/${SESSION_TIMESTAMP}_${agent}_conversations.jsonl"
+            else
+                rm -f "./results/${SESSION_TIMESTAMP}_${agent}_conversations.jsonl"
+            fi
+        done
+    fi
 
     # Cleanup
     if [[ "$KEEP_CONTAINERS" == "false" ]]; then
@@ -560,16 +599,16 @@ main() {
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}  Execution Complete${NC}"
     echo -e "${GREEN}========================================${NC}"
-    echo -e "Results: ${BLUE}./results/${NC}"
-    echo -e "Logs:    ${BLUE}./logs/${NC}"
-    echo -e "Metrics: ${BLUE}./metrics/${NC}"
+    echo -e "Results:       ${BLUE}./results/${NC}"
+    echo -e "Conversations: ${BLUE}./results/${SESSION_TIMESTAMP}_*_conversations.jsonl${NC}"
+    echo -e "Metrics:       ${BLUE}./metrics/${NC}"
     echo ""
     echo "Results:"
     ls -la results/ 2>/dev/null || echo "(no results yet)"
     echo ""
     echo "Metrics summary:"
-    if [[ -f "./metrics/${TIMESTAMP}_summary.json" ]]; then
-        cat "./metrics/${TIMESTAMP}_summary.json" | python3 -c "
+    if [[ -f "./metrics/${SESSION_TIMESTAMP}_summary.json" ]]; then
+        cat "./metrics/${SESSION_TIMESTAMP}_summary.json" | python3 -c "
 import sys, json
 try:
     d = json.load(sys.stdin)

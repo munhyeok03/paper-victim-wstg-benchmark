@@ -21,8 +21,8 @@ from datetime import datetime
 from typing import Optional
 
 
-def parse_usage_jsonl(log_dir: str) -> list[dict]:
-    """usage.jsonl 파일을 파싱합니다."""
+def parse_usage_jsonl(log_dir: str, start_time: Optional[str] = None, end_time: Optional[str] = None) -> list[dict]:
+    """usage.jsonl 파일을 파싱합니다. 시간 범위 필터링 지원."""
     entries = []
     log_path = Path(log_dir)
 
@@ -37,6 +37,15 @@ def parse_usage_jsonl(log_dir: str) -> list[dict]:
                     continue
                 try:
                     entry = json.loads(line)
+
+                    # Apply time filtering if specified
+                    if start_time or end_time:
+                        timestamp = entry.get("timestamp", "")
+                        if start_time and timestamp < start_time:
+                            continue
+                        if end_time and timestamp > end_time:
+                            continue
+
                     entries.append(entry)
                 except json.JSONDecodeError:
                     continue
@@ -92,8 +101,8 @@ def parse_proxy_log_fallback(log_dir: str) -> list[dict]:
     return entries
 
 
-def aggregate(log_dir: str) -> dict:
-    """로그 디렉토리에서 메트릭을 집계합니다."""
+def aggregate(log_dir: str, start_time: Optional[str] = None, end_time: Optional[str] = None) -> dict:
+    """로그 디렉토리에서 메트릭을 집계합니다. 시간 범위 필터링 지원."""
     metrics = defaultdict(lambda: {
         "calls": 0,
         "successful_calls": 0,
@@ -113,8 +122,8 @@ def aggregate(log_dir: str) -> dict:
     if not log_path.exists():
         return {"error": f"Log directory not found: {log_dir}", "models": {}}
 
-    # Parse entries from usage.jsonl (primary)
-    entries = parse_usage_jsonl(log_dir)
+    # Parse entries from usage.jsonl (primary) with time filtering
+    entries = parse_usage_jsonl(log_dir, start_time, end_time)
 
     # Fallback to proxy log parsing if no entries found
     if not entries:
@@ -217,12 +226,15 @@ def aggregate(log_dir: str) -> dict:
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: aggregate_metrics.py <log_dir> [--output <file>]", file=sys.stderr)
+        print("Usage: aggregate_metrics.py <log_dir> [--output <file>] [--start <timestamp>] [--end <timestamp>]", file=sys.stderr)
         print("Example: aggregate_metrics.py ./metrics/logs/", file=sys.stderr)
+        print("Example: aggregate_metrics.py ./metrics/logs/ --start 2026-01-26T10:00:00Z --end 2026-01-26T11:00:00Z", file=sys.stderr)
         sys.exit(1)
 
     log_dir = sys.argv[1]
     output_file = None
+    start_time = None
+    end_time = None
 
     # Parse --output flag
     if "--output" in sys.argv:
@@ -230,7 +242,19 @@ def main():
         if idx + 1 < len(sys.argv):
             output_file = sys.argv[idx + 1]
 
-    result = aggregate(log_dir)
+    # Parse --start flag
+    if "--start" in sys.argv:
+        idx = sys.argv.index("--start")
+        if idx + 1 < len(sys.argv):
+            start_time = sys.argv[idx + 1]
+
+    # Parse --end flag
+    if "--end" in sys.argv:
+        idx = sys.argv.index("--end")
+        if idx + 1 < len(sys.argv):
+            end_time = sys.argv[idx + 1]
+
+    result = aggregate(log_dir, start_time, end_time)
     output = json.dumps(result, indent=2, ensure_ascii=False)
 
     if output_file:

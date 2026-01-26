@@ -21,7 +21,6 @@ Thumbs.db
 
 # Logs
 *.log
-logs/
 
 # Metrics (generated)
 metrics/logs/
@@ -31,6 +30,14 @@ metrics/*.json
 tmp/
 temp/
 *.tmp
+
+# Prompts (only example files tracked)
+prompts/*
+!prompts/example_*.txt
+
+# Output formats (only example files tracked)
+output_formats/*
+!output_formats/example_*.txt
 
 # Victim repositories (cloned separately)
 victims/
