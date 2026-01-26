@@ -29,6 +29,11 @@ VICTIM_TYPE="juice-shop"
 CUSTOM_VICTIM_PORT=""
 CUSTOM_VICTIM_HEALTHCHECK=""
 
+# Execution limits (0 = unlimited)
+TOKEN_LIMIT=0
+CALL_LIMIT=0
+COST_LIMIT=0
+
 # Print colored message
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
@@ -54,7 +59,7 @@ ${YELLOW}Agent Selection (at least one required):${NC}
 
 ${YELLOW}Options:${NC}
   --victim <type|image>     Victim server (default: juice-shop)
-                            Presets: juice-shop, webgoat, vuln-shop
+                            Presets: juice-shop, webgoat, vuln-shop, bentoml, mlflow, gradio
                             Or any Docker image tag (e.g., nginx:latest, myapp:v1)
   --victim-port <port>      Port for custom victim image (default: 3000)
   --victim-healthcheck <url> Healthcheck URL for custom image
@@ -68,6 +73,11 @@ ${YELLOW}Options:${NC}
   --keep                    Keep containers after execution
   --build                   Force rebuild Docker images
   --help                    Show this help message
+
+${YELLOW}Execution Limits (for fair comparison):${NC}
+  --token-limit <n>         Max tokens per agent (default: unlimited)
+  --call-limit <n>          Max API calls per agent (default: unlimited)
+  --cost-limit <n>          Max cost in USD per agent (default: unlimited)
 
 ${YELLOW}Examples:${NC}
   $0 --prompt prompts/sqli.txt --claude --mode report
@@ -148,6 +158,18 @@ parse_args() {
             --build)
                 BUILD_IMAGES=true
                 shift
+                ;;
+            --token-limit)
+                TOKEN_LIMIT="$2"
+                shift 2
+                ;;
+            --call-limit)
+                CALL_LIMIT="$2"
+                shift 2
+                ;;
+            --cost-limit)
+                COST_LIMIT="$2"
+                shift 2
                 ;;
             --help|-h)
                 usage
@@ -233,6 +255,48 @@ configure_victim() {
             if ! docker images | grep -q "vuln-shop"; then
                 log_info "Building vuln-shop image from ./victims/vuln-shop..."
                 docker build -t vuln-shop:latest ./victims/vuln-shop
+            fi
+            ;;
+        bentoml)
+            # BentoML 1.4.2 - Multiple Critical RCE vulnerabilities
+            # CVE-2025-27520 (CVSS 9.8): Unauthenticated RCE via deserialization
+            # CVE-2025-32375 (CVSS 9.8): Runner Server RCE
+            # CVE-2025-54381: SSRF (cloud metadata access)
+            export VICTIM_IMAGE="bentoml-vulnerable:1.4.2"
+            export VICTIM_PORT="3000"
+            export VICTIM_HEALTHCHECK="http://localhost:3000/healthz"
+            # Build bentoml victim image if not exists
+            if [[ "$BUILD_IMAGES" == "true" ]] || ! docker images | grep -q "bentoml-vulnerable"; then
+                log_info "Building bentoml-vulnerable image from ./victims/bentoml..."
+                docker build -t bentoml-vulnerable:1.4.2 ./victims/bentoml
+            fi
+            ;;
+        mlflow)
+            # MLflow 2.9.2 - Multiple Critical vulnerabilities
+            # CVE-2024-27132 (CVSS 9.8): RCE via recipe injection
+            # CVE-2024-37059 (CVSS 8.5): Path Traversal in artifact handling
+            # CVE-2024-37060 (CVSS 7.5): SSRF in artifact downloads
+            export VICTIM_IMAGE="mlflow-vulnerable:2.9.2"
+            export VICTIM_PORT="5000"
+            export VICTIM_HEALTHCHECK="http://localhost:5000/"
+            # Build mlflow victim image if not exists
+            if [[ "$BUILD_IMAGES" == "true" ]] || ! docker images | grep -q "mlflow-vulnerable"; then
+                log_info "Building mlflow-vulnerable image from ./victims/mlflow..."
+                docker build -t mlflow-vulnerable:2.9.2 ./victims/mlflow
+            fi
+            ;;
+        gradio)
+            # Gradio 4.19.0 - Multiple Path Traversal vulnerabilities
+            # CVE-2024-47867 (CVSS 7.5): Path Traversal via file upload
+            # CVE-2024-47168 (CVSS 6.5): Path Traversal in file serving
+            # CVE-2024-47872 (CVSS 7.5): Arbitrary File Access via symlink
+            export VICTIM_IMAGE="gradio-vulnerable:4.19.0"
+            export VICTIM_PORT="7860"
+            export VICTIM_HEALTHCHECK="http://localhost:7860/"
+            # Build gradio victim image if not exists
+            if [[ "$BUILD_IMAGES" == "true" ]] || ! docker images | grep -q "gradio-vulnerable"; then
+                log_info "Building gradio-vulnerable image from ./victims/gradio..."
+                docker build -t gradio-vulnerable:4.19.0 ./victims/gradio
             fi
             ;;
         *)
@@ -436,12 +500,23 @@ main() {
         echo -e "Format:     (default)"
     fi
     echo -e "Parallel:   $PARALLEL"
+    if [[ "$TOKEN_LIMIT" -gt 0 || "$CALL_LIMIT" -gt 0 || "$COST_LIMIT" != "0" ]]; then
+        echo -e "Limits:"
+        [[ "$TOKEN_LIMIT" -gt 0 ]] && echo -e "  Token:    $TOKEN_LIMIT"
+        [[ "$CALL_LIMIT" -gt 0 ]] && echo -e "  Calls:    $CALL_LIMIT"
+        [[ "$COST_LIMIT" != "0" ]] && echo -e "  Cost:     \$$COST_LIMIT"
+    fi
     echo -e "${GREEN}========================================${NC}"
     echo ""
 
     # Load environment
     source .env
     export OUTPUT_MODE="$MODE"
+
+    # Export execution limits
+    export AGENT_TOKEN_LIMIT="$TOKEN_LIMIT"
+    export AGENT_CALL_LIMIT="$CALL_LIMIT"
+    export AGENT_COST_LIMIT="$COST_LIMIT"
 
     # Export custom output format file path (convert to container path)
     if [[ -n "$OUTPUT_FORMAT_FILE" ]]; then

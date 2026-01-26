@@ -86,6 +86,9 @@ cp .env.example .env
 # Claude만, report 모드
 ./run.sh --prompt prompts/attack.txt --claude --mode report
 
+# BentoML victim 사용 (CVE-2025-27520 RCE 테스트)
+./run.sh --prompt prompts/bentoml_attack.txt --claude --victim bentoml
+
 # 커스텀 Docker 이미지 사용
 ./run.sh --prompt prompts/attack.txt --claude --victim myapp:v1 --victim-port 8080
 
@@ -107,6 +110,33 @@ cp .env.example .env
 | `--sequential` | 순차 실행 | 병렬 |
 | `--keep` | 실행 후 컨테이너 유지 | 삭제 |
 | `--build` | Docker 이미지 강제 재빌드 | - |
+| `--token-limit <n>` | 에이전트당 최대 토큰 수 | 무제한 |
+| `--call-limit <n>` | 에이전트당 최대 API 호출 수 | 무제한 |
+| `--cost-limit <n>` | 에이전트당 최대 비용 (USD) | 무제한 |
+
+### 실행 제한 (Execution Limits)
+
+공정한 비교를 위해 에이전트별 실행 제한을 설정할 수 있습니다:
+
+```bash
+# 토큰 제한: 각 에이전트 500,000 토큰에서 종료
+./run.sh --prompt prompts/attack.txt --all --token-limit 500000
+
+# API 호출 제한: 각 에이전트 100회 호출에서 종료
+./run.sh --prompt prompts/attack.txt --all --call-limit 100
+
+# 비용 제한: 각 에이전트 $10에서 종료
+./run.sh --prompt prompts/attack.txt --claude --cost-limit 10.0
+
+# 복합 제한 (먼저 도달하는 조건에서 종료)
+./run.sh --prompt prompts/attack.txt --all --token-limit 1000000 --cost-limit 20.0
+```
+
+**제한 동작:**
+- 제한 초과시 LiteLLM 프록시가 HTTP 429 반환
+- 에이전트는 exit code 0으로 정상 종료 (의도된 종료)
+- 제한 도달 전까지의 모든 호출이 `usage.jsonl`에 기록됨
+- 여러 에이전트 동시 실행시 각 에이전트가 독립적으로 카운팅됨
 
 ## 메트릭 수집
 
@@ -133,6 +163,9 @@ cp .env.example .env
 | `cache_creation_tokens` | 캐시 생성 토큰 (Claude) |
 | `cost_usd` | API 호출 비용 |
 | `latency_ms` | 응답 지연시간 |
+| `cumulative_tokens` | 해당 에이전트의 누적 토큰 수 |
+| `cumulative_calls` | 해당 에이전트의 누적 호출 수 |
+| `cumulative_cost_usd` | 해당 에이전트의 누적 비용 |
 
 ### 메트릭 집계
 
@@ -234,11 +267,14 @@ python3 scripts/aggregate_metrics.py metrics/logs/ --output summary.json
 ## Victim 서버 옵션
 
 ### 프리셋
-| Type | 이미지 | 포트 |
-|------|--------|------|
-| `juice-shop` | `bkimminich/juice-shop` | 3000 |
-| `webgoat` | `webgoat/webgoat` | 8080 |
-| `vuln-shop` | `vuln-shop:latest` (로컬 빌드) | 3000 |
+| Type | 이미지 | 포트 | 주요 취약점 |
+|------|--------|------|-------------|
+| `juice-shop` | `bkimminich/juice-shop` | 3000 | OWASP Top 10 |
+| `webgoat` | `webgoat/webgoat` | 8080 | OWASP Top 10 |
+| `vuln-shop` | `vuln-shop:latest` (로컬 빌드) | 3000 | 커스텀 |
+| `bentoml` | `bentoml-vulnerable:1.4.2` (로컬 빌드) | 3000 | RCE (CVE-2025-27520), SSRF |
+| `mlflow` | `mlflow-vulnerable:2.9.2` (로컬 빌드) | 5000 | RCE, Path Traversal, SSRF |
+| `gradio` | `gradio-vulnerable:4.19.0` (로컬 빌드) | 7860 | Path Traversal, File Access |
 
 ### 커스텀 이미지
 ```bash
