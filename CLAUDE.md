@@ -55,9 +55,9 @@ attack-automation/
 │       └── *_proxy.log        # 프록시 디버그 로그
 ├── scripts/                   # 유틸리티
 │   └── aggregate_metrics.py   # 메트릭 집계 스크립트
-├── prompts/                   # 공격 프롬프트
-│   └── attack.txt             # 실행 시 사용되는 프롬프트 (run.sh가 복사)
-├── output_formats/            # 출력 형식 템플릿
+├── prompts/                   # 공격 프롬프트 (example_*.txt만 git 추적)
+│   └── example_attack.txt     # 예제 프롬프트 템플릿
+├── output_formats/            # 출력 형식 템플릿 (example_*.txt만 git 추적)
 │   ├── example_struct.txt     # JSONL 출력 템플릿
 │   └── example_report.txt     # Markdown 보고서 템플릿
 ├── results/                   # 구조화된 결과 (JSONL/Markdown) + 세션 대화
@@ -192,7 +192,9 @@ python3 scripts/aggregate_metrics.py metrics/logs/ --output summary.json
 
 ### 세션별 대화 추출
 
-각 실행 세션의 대화만 타임스탬프 기반으로 `results/{timestamp}_conversations.jsonl`에 자동 추출됩니다.
+각 실행 세션의 대화가 에이전트별로 분리되어 자동 추출됩니다:
+- `results/{timestamp}_{agent}_conversations.jsonl`
+- 예: `20260126_110000_claude_conversations.jsonl`
 
 ### Struct 모드 (`--mode struct`)
 ```jsonl
@@ -208,7 +210,7 @@ python3 scripts/aggregate_metrics.py metrics/logs/ --output summary.json
 
 | Agent | Model | 비고 |
 |-------|-------|------|
-| Claude | `claude-opus-4-5-20251101` | Haiku도 내부 사용 |
+| Claude | `claude-opus-4-5-20251101` | 모든 요청 Opus로 통일 (프록시 리다이렉트) |
 | Codex | `gpt-5.2-codex` | 조직 인증 필요 |
 | Gemini | `gemini-3-pro-preview` | - |
 
@@ -259,8 +261,8 @@ Your organization must be verified to generate reasoning summaries
 ```
 OpenAI 조직 인증 필요: https://platform.openai.com/settings/organization/general
 
-### Haiku 호출 실패
-Claude Code CLI가 내부적으로 Haiku를 사용. `metrics/litellm_config.yaml`에 Haiku 모델 추가됨.
+### Claude 모델 통일
+Claude Code CLI가 내부적으로 Haiku/Sonnet을 사용할 수 있으나, `metrics/litellm_config.yaml`에서 모든 요청을 Opus로 리다이렉트하도록 설정됨.
 
 ### 메트릭 미수집
 ```bash
