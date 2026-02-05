@@ -740,23 +740,155 @@ INFO_DISCLOSURE_PATTERNS = [
     # 913100 - Found User-Agent associated with security scanner
     CRSPattern(
         rule_id="913100",
-        pattern=r"(?:nikto|sqlmap|nmap|nessus|openvas|acunetix|appscan|burp|w3af|arachni|skipfish|grabber|webshag|dirbuster|gobuster|wfuzz|zaproxy|nuclei)",
+        pattern=r"(?:nikto|sqlmap|nmap|nessus|openvas|acunetix|appscan|burp|w3af|arachni|skipfish|grabber|webshag|dirbuster|gobuster|wfuzz|zaproxy|nuclei|masscan|zap|whatweb|wafw00f)",
         description="Security scanner User-Agent",
         severity="medium"
     ),
     # 913110 - Found request header associated with security scanner
     CRSPattern(
         rule_id="913110",
-        pattern=r"(?:X-Scanner|X-Scan|X-Wipp|X-Proxy|X-Forwarded-By)",
+        pattern=r"(?:X-Scanner|X-Scan|X-Wipp|X-Proxy|X-Forwarded-By|X-Burp-Token)",
         description="Scanner-specific headers",
         severity="low"
     ),
     # 913120 - Found request filename/argument associated with security scanner
     CRSPattern(
         rule_id="913120",
-        pattern=r"(?:\.bak|\.backup|\.old|\.orig|\.temp|\.tmp|\.swp|~|\.git|\.svn|\.hg|\.bzr|\.env|\.config)",
-        description="Sensitive file extension probing",
+        pattern=r"(?:\.bak|\.backup|\.old|\.orig|\.temp|\.tmp|\.swp|~$)",
+        description="Backup file extension probing",
         severity="medium"
+    ),
+    # Version Control Directories (CWE-527)
+    CRSPattern(
+        rule_id="custom-info-001",
+        pattern=r"(?:/\.(?:git|svn|hg|bzr)(?:/|$))",
+        description="Version control directory access",
+        severity="high"
+    ),
+    CRSPattern(
+        rule_id="custom-info-002",
+        pattern=r"(?:/\.(?:git|svn)/(?:config|HEAD|index|objects|refs|logs|COMMIT_EDITMSG))",
+        description="Version control metadata file access",
+        severity="high"
+    ),
+    # Environment/Configuration Files (CWE-538)
+    CRSPattern(
+        rule_id="custom-info-003",
+        pattern=r"(?:/\.env(?:\.(?:local|dev|development|staging|production|test|backup|example))?(?:$|\?))",
+        description="Environment file access attempt",
+        severity="critical"
+    ),
+    CRSPattern(
+        rule_id="custom-info-004",
+        pattern=r"(?:/(?:config|configuration|settings)\.(?:php|py|rb|js|json|yml|yaml|xml|ini))",
+        description="Configuration file access",
+        severity="high"
+    ),
+    CRSPattern(
+        rule_id="custom-info-005",
+        pattern=r"(?:/(?:web|app)\.config|/appsettings\.json|/secrets\.(?:json|yml|yaml))",
+        description="Application secrets file access",
+        severity="critical"
+    ),
+    # Log Files (CWE-532)
+    CRSPattern(
+        rule_id="custom-info-006",
+        pattern=r"(?:/(?:var/)?log(?:s)?/|\.log(?:$|\?)|/(?:access|error|debug|application)\.log)",
+        description="Log file access attempt",
+        severity="medium"
+    ),
+    CRSPattern(
+        rule_id="custom-info-007",
+        pattern=r"(?:/(?:debug|trace|audit)\.(?:log|txt))",
+        description="Debug/trace log access",
+        severity="medium"
+    ),
+    # Database Files (CWE-530)
+    CRSPattern(
+        rule_id="custom-info-008",
+        pattern=r"(?:/(?:database|db)\.(?:sql|sqlite|sqlite3|mdb|accdb|dump))",
+        description="Database file access attempt",
+        severity="critical"
+    ),
+    CRSPattern(
+        rule_id="custom-info-009",
+        pattern=r"(?:/(?:backup|dump|export)\.(?:sql|tar|gz|zip|bak))",
+        description="Database backup file access",
+        severity="critical"
+    ),
+    # Source Code Exposure (CWE-540)
+    CRSPattern(
+        rule_id="custom-info-010",
+        pattern=r"(?:\.(?:php|asp|aspx|jsp|py|rb)~|\.(?:php|asp|aspx|jsp)\.swp)",
+        description="Source code backup file access",
+        severity="high"
+    ),
+    CRSPattern(
+        rule_id="custom-info-011",
+        pattern=r"(?:/(?:src|source|sources|code|app)/.*\.(?:php|py|rb|js|java|go))",
+        description="Source directory enumeration",
+        severity="medium"
+    ),
+    # Package Manager Files (CWE-538)
+    CRSPattern(
+        rule_id="custom-info-012",
+        pattern=r"(?:/(?:package|composer|Gemfile|requirements|Pipfile|Cargo)\.(?:json|lock|txt|toml))",
+        description="Package manager file access",
+        severity="low"
+    ),
+    # Cloud/Infrastructure Metadata (CWE-200)
+    CRSPattern(
+        rule_id="custom-info-013",
+        pattern=r"(?:/latest/(?:meta-data|user-data|dynamic)|/computeMetadata/v1/)",
+        description="Cloud instance metadata access",
+        severity="critical"
+    ),
+    CRSPattern(
+        rule_id="custom-info-014",
+        pattern=r"(?:\.(?:aws|azure|gcp)/(?:credentials|config))",
+        description="Cloud provider credential file access",
+        severity="critical"
+    ),
+    # Server Configuration Files
+    CRSPattern(
+        rule_id="custom-info-015",
+        pattern=r"(?:/\.htaccess|/\.htpasswd|/nginx\.conf|/httpd\.conf|/server\.xml)",
+        description="Server configuration file access",
+        severity="high"
+    ),
+    # IDE/Editor Metadata
+    CRSPattern(
+        rule_id="custom-info-016",
+        pattern=r"(?:/\.(?:idea|vscode|vs|project|settings)/|/\.editorconfig)",
+        description="IDE metadata directory access",
+        severity="low"
+    ),
+    # Docker/Container Files
+    CRSPattern(
+        rule_id="custom-info-017",
+        pattern=r"(?:/(?:Dockerfile|docker-compose\.yml|\.dockerignore|kubernetes\.yml))",
+        description="Container configuration file access",
+        severity="medium"
+    ),
+    # Error Response Patterns (for response analysis)
+    CRSPattern(
+        rule_id="custom-info-018",
+        pattern=r"(?:stack\s*trace|traceback|exception|fatal\s+error|parse\s+error|syntax\s+error)",
+        description="Error message information leak",
+        severity="medium"
+    ),
+    CRSPattern(
+        rule_id="custom-info-019",
+        pattern=r"(?:mysql_|mysqli_|pg_|ora-\d+|sqlite_|mssql_|SQLSTATE\[)",
+        description="Database error message leak",
+        severity="high"
+    ),
+    # Robots.txt / Sitemap (recon)
+    CRSPattern(
+        rule_id="custom-info-020",
+        pattern=r"(?:/robots\.txt|/sitemap\.xml|/crossdomain\.xml|/clientaccesspolicy\.xml)",
+        description="Web crawling metadata access",
+        severity="low"
     ),
 ]
 
@@ -813,10 +945,183 @@ DESERIALIZATION_PATTERNS = [
 
 
 # =============================================================================
+# IDOR Patterns (Custom - Adversarial Context)
+# Based on OWASP WSTG-AUTHZ-04, CWE-639
+# In adversarial context, resource ID access patterns indicate IDOR attempts
+# =============================================================================
+
+IDOR_PATTERNS = [
+    # 1. REST API User/Account Resource Access
+    CRSPattern(
+        rule_id="custom-idor-001",
+        pattern=r"(?:/(?:api/)?(?:v\d+/)?(?:user|users|profile|profiles|account|accounts)/\d+)",
+        description="User/account ID enumeration via REST API",
+        severity="high"
+    ),
+    CRSPattern(
+        rule_id="custom-idor-002",
+        pattern=r"(?:/(?:api/)?(?:v\d+/)?(?:member|members|customer|customers|employee|employees)/\d+)",
+        description="Member/customer ID enumeration",
+        severity="high"
+    ),
+    # 2. Order/Transaction Resource Access
+    CRSPattern(
+        rule_id="custom-idor-003",
+        pattern=r"(?:/(?:api/)?(?:v\d+/)?(?:order|orders|purchase|purchases|transaction|transactions)/\d+)",
+        description="Order/transaction ID enumeration",
+        severity="high"
+    ),
+    # 3. File/Document Resource Access
+    CRSPattern(
+        rule_id="custom-idor-004",
+        pattern=r"(?:/(?:api/)?(?:v\d+/)?(?:file|files|document|documents|attachment|attachments|upload|uploads)/\d+)",
+        description="File/document ID enumeration",
+        severity="high"
+    ),
+    # 4. Message/Communication Resource Access
+    CRSPattern(
+        rule_id="custom-idor-005",
+        pattern=r"(?:/(?:api/)?(?:v\d+/)?(?:message|messages|chat|chats|conversation|conversations|inbox)/\d+)",
+        description="Message/conversation ID enumeration",
+        severity="medium"
+    ),
+    # 5. Query Parameter ID Access
+    CRSPattern(
+        rule_id="custom-idor-006",
+        pattern=r"(?:[?&](?:id|user_?id|userId|uid|account_?id|accountId)=\d+)",
+        description="User/account ID in query parameter",
+        severity="high"
+    ),
+    CRSPattern(
+        rule_id="custom-idor-007",
+        pattern=r"(?:[?&](?:order_?id|orderId|oid|file_?id|fileId|fid|doc_?id|docId)=\d+)",
+        description="Resource ID in query parameter",
+        severity="medium"
+    ),
+    # 6. GraphQL ID Access
+    CRSPattern(
+        rule_id="custom-idor-008",
+        pattern=r'(?:(?:query|mutation)\s*(?:\w+\s*)?\{[^}]*(?:id|ID|userId|accountId)\s*:\s*["\']?\d+)',
+        description="GraphQL ID-based resource access",
+        severity="high"
+    ),
+    # 7. UUID/GUID Resource Access (predictable in some cases)
+    CRSPattern(
+        rule_id="custom-idor-009",
+        pattern=r"(?:/(?:api/)?(?:v\d+/)?\w+/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})",
+        description="UUID-based resource access",
+        severity="medium"
+    ),
+    # 8. Nested Resource Access
+    CRSPattern(
+        rule_id="custom-idor-010",
+        pattern=r"(?:/(?:api/)?(?:v\d+/)?(?:user|users)/\d+/(?:order|orders|file|files|message|messages))",
+        description="Nested resource access via user ID",
+        severity="high"
+    ),
+    # 9. Admin/Internal Endpoint ID Access
+    CRSPattern(
+        rule_id="custom-idor-011",
+        pattern=r"(?:/(?:admin|internal|management|backend)/(?:user|users|account|accounts)/\d+)",
+        description="Admin endpoint user ID access",
+        severity="critical"
+    ),
+    # 10. Basket/Cart ID Access (common in e-commerce)
+    CRSPattern(
+        rule_id="custom-idor-012",
+        pattern=r"(?:/(?:api/)?(?:v\d+/)?(?:basket|baskets|cart|carts|checkout)/\d+)",
+        description="Shopping basket/cart ID enumeration",
+        severity="high"
+    ),
+]
+
+
+# =============================================================================
+# CSRF Patterns (Custom - Adversarial Context)
+# Based on OWASP WSTG-SESS-05, CWE-352, Mitch (IEEE 2019)
+# In adversarial context, state-changing requests indicate CSRF attack attempts
+# =============================================================================
+
+CSRF_PATTERNS = [
+    # 1. Financial/Monetary State Changes
+    CRSPattern(
+        rule_id="custom-csrf-001",
+        pattern=r"(?:(?:POST|PUT|PATCH)\s+/(?:api/)?(?:v\d+/)?(?:transfer|send|pay|payment|withdraw|deposit))",
+        description="Financial operation state change",
+        severity="critical"
+    ),
+    # 2. Account Settings Modification
+    CRSPattern(
+        rule_id="custom-csrf-002",
+        pattern=r"(?:(?:POST|PUT|PATCH)\s+/(?:api/)?(?:v\d+/)?(?:password|email|phone|profile|settings|preferences))",
+        description="Account settings modification",
+        severity="high"
+    ),
+    # 3. Administrative Actions
+    CRSPattern(
+        rule_id="custom-csrf-003",
+        pattern=r"(?:(?:POST|PUT|DELETE|PATCH)\s+/(?:api/)?(?:v\d+/)?(?:admin|manage|moderate|config|configuration))",
+        description="Administrative action request",
+        severity="critical"
+    ),
+    # 4. Destructive Operations
+    CRSPattern(
+        rule_id="custom-csrf-004",
+        pattern=r"(?:(?:POST|DELETE)\s+/(?:api/)?(?:v\d+/)?(?:delete|remove|destroy|purge|wipe))",
+        description="Destructive operation request",
+        severity="high"
+    ),
+    # 5. User Management Actions
+    CRSPattern(
+        rule_id="custom-csrf-005",
+        pattern=r"(?:(?:POST|PUT|DELETE)\s+/(?:api/)?(?:v\d+/)?(?:user|users|account|accounts)/\d+(?:/(?:delete|disable|enable|activate|deactivate))?)",
+        description="User management action",
+        severity="high"
+    ),
+    # 6. Form-Based State Change (URL-encoded body)
+    CRSPattern(
+        rule_id="custom-csrf-006",
+        pattern=r"(?:Content-Type:\s*application/x-www-form-urlencoded.*(?:action=|submit=|confirm=|approve=))",
+        description="Form-based state change request",
+        severity="medium"
+    ),
+    # 7. Cross-Origin Indicators
+    CRSPattern(
+        rule_id="custom-csrf-007",
+        pattern=r"(?:Origin:\s*(?:null|https?://(?!(?:localhost|127\.0\.0\.1|victim))))",
+        description="Cross-origin request indicator",
+        severity="medium"
+    ),
+    # 8. Explicit CSRF Testing Keywords
+    CRSPattern(
+        rule_id="custom-csrf-008",
+        pattern=r"(?:(?:csrf|xsrf|forgery).*(?:bypass|test|exploit|attack|token))",
+        description="Explicit CSRF testing attempt",
+        severity="high"
+    ),
+    # 9. Token Manipulation Attempts
+    CRSPattern(
+        rule_id="custom-csrf-009",
+        pattern=r"(?:(?:csrf_token|xsrf_token|_token|authenticity_token)\s*=\s*(?:null|undefined|''|\"\"|test|bypass))",
+        description="CSRF token manipulation attempt",
+        severity="high"
+    ),
+    # 10. State Change via GET (Anti-pattern exploitation)
+    CRSPattern(
+        rule_id="custom-csrf-010",
+        pattern=r"(?:GET\s+/(?:api/)?(?:v\d+/)?(?:delete|remove|update|change|modify|transfer)\?)",
+        description="State change via GET request (anti-pattern)",
+        severity="medium"
+    ),
+]
+
+
+# =============================================================================
 # Custom Patterns (Auth Bypass, File Upload, etc.)
 # =============================================================================
 
 AUTH_BYPASS_PATTERNS = [
+    # Original patterns (extended)
     CRSPattern(
         rule_id="custom-auth-001",
         pattern=r"(?:/(?:login|signin|authenticate|auth).*(?:admin'--|'\s*OR\s*'?\d+'\s*=\s*'?\d+))",
@@ -825,35 +1130,158 @@ AUTH_BYPASS_PATTERNS = [
     ),
     CRSPattern(
         rule_id="custom-auth-002",
-        pattern=r'(?:"alg"\s*:\s*"none"|"alg"\s*:\s*"None"|"alg"\s*:\s*"NONE")',
+        pattern=r'(?:"alg"\s*:\s*"(?:none|None|NONE)")',
         description="JWT algorithm none bypass",
         severity="critical"
     ),
     CRSPattern(
         rule_id="custom-auth-003",
-        pattern=r"(?:admin:admin|root:root|test:test|guest:guest|user:user|admin:password|admin:123456)",
+        pattern=r"(?:(?:admin|root|test|guest|user|demo|manager|operator)(?::|%3[aA])(?:admin|root|test|guest|password|123456|pass|qwerty|letmein))",
         description="Default credentials attempt",
         severity="high"
+    ),
+    # JWT Manipulation (extended)
+    CRSPattern(
+        rule_id="custom-auth-004",
+        pattern=r'(?:"alg"\s*:\s*"(?:HS256|HS384|HS512)".*"typ"\s*:\s*"JWT")',
+        description="JWT with symmetric algorithm (potential key confusion)",
+        severity="medium"
+    ),
+    CRSPattern(
+        rule_id="custom-auth-005",
+        pattern=r"(?:eyJ[A-Za-z0-9_-]*\.eyJ[A-Za-z0-9_-]*\.)",
+        description="JWT token structure detected",
+        severity="low"
+    ),
+    # Privilege Escalation Parameters (CAPEC-122)
+    CRSPattern(
+        rule_id="custom-auth-006",
+        pattern=r"(?:(?:admin|role|privilege|isAdmin|is_admin|superuser|is_superuser)\s*[=:]\s*(?:true|1|yes|admin|root|superuser))",
+        description="Privilege escalation parameter injection",
+        severity="critical"
+    ),
+    CRSPattern(
+        rule_id="custom-auth-007",
+        pattern=r"(?:(?:user_type|userType|user_role|userRole|access_level|accessLevel)\s*[=:]\s*(?:admin|administrator|superuser|root|manager))",
+        description="Role elevation parameter injection",
+        severity="critical"
+    ),
+    # Forced Browsing / Direct Access (CAPEC-115)
+    CRSPattern(
+        rule_id="custom-auth-008",
+        pattern=r"(?:/(?:admin|administrator|dashboard|internal|debug|console|management|backend|superuser)(?:/|$|\?))",
+        description="Direct access to admin/protected endpoints",
+        severity="high"
+    ),
+    # Header Spoofing (CAPEC-194)
+    CRSPattern(
+        rule_id="custom-auth-009",
+        pattern=r"(?:X-Forwarded-For:\s*(?:127\.0\.0\.1|localhost|::1|0\.0\.0\.0|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+))",
+        description="IP spoofing via X-Forwarded-For",
+        severity="high"
+    ),
+    CRSPattern(
+        rule_id="custom-auth-010",
+        pattern=r"(?:X-(?:Original-URL|Rewrite-URL|Custom-IP-Authorization):\s*)",
+        description="URL/authorization header manipulation",
+        severity="high"
+    ),
+    # Session Manipulation
+    CRSPattern(
+        rule_id="custom-auth-011",
+        pattern=r"(?:(?:PHPSESSID|JSESSIONID|ASP\.NET_SessionId|session_id|sid)\s*=\s*[a-fA-F0-9]{20,})",
+        description="Session ID manipulation/fixation attempt",
+        severity="high"
+    ),
+    # Additional Default Credentials
+    CRSPattern(
+        rule_id="custom-auth-012",
+        pattern=r'(?:(?:"password"|"passwd"|"pwd")\s*:\s*(?:"password"|"123456"|"admin"|"root"|"test"|"qwerty"|"letmein"|"welcome"))',
+        description="Common password in JSON body",
+        severity="medium"
+    ),
+    # Authentication Endpoint Probing
+    CRSPattern(
+        rule_id="custom-auth-013",
+        pattern=r"(?:/(?:api/)?(?:v\d+/)?(?:oauth|oauth2|token|jwt|auth|authenticate|login|signin|sso)/)",
+        description="Authentication endpoint probing",
+        severity="low"
     ),
 ]
 
 FILE_UPLOAD_PATTERNS = [
+    # Original patterns
     CRSPattern(
         rule_id="custom-upload-001",
-        pattern=r"(?:Content-Disposition:.*filename=.*\.(?:php|phtml|php3|php4|php5|phar|jsp|jspx|asp|aspx|exe|dll|sh|bash|ps1|py|pl|rb))",
+        pattern=r"(?:Content-Disposition:.*filename=.*\.(?:php|phtml|php3|php4|php5|phar|jsp|jspx|asp|aspx|exe|dll|sh|bash|ps1|py|pl|rb|cgi))",
         description="Executable file upload attempt",
         severity="critical"
     ),
     CRSPattern(
         rule_id="custom-upload-002",
-        pattern=r"(?:Content-Type:\s*(?:application/x-httpd-php|text/x-php|application/x-php))",
-        description="PHP content type in upload",
+        pattern=r"(?:Content-Type:\s*(?:application/x-httpd-php|text/x-php|application/x-php|application/x-executable|application/x-msdos-program))",
+        description="Executable content type in upload",
         severity="high"
     ),
     CRSPattern(
         rule_id="custom-upload-003",
-        pattern=r"(?:<\?php|<%@|<jsp:|<%=)",
-        description="Server-side code in upload",
+        pattern=r"(?:<\?php|<%@|<jsp:|<%=|<\?=)",
+        description="Server-side code in upload content",
+        severity="critical"
+    ),
+    # Double Extension Bypass
+    CRSPattern(
+        rule_id="custom-upload-004",
+        pattern=r"(?:filename=.*\.(?:php|jsp|asp|aspx|exe)\.(?:jpg|jpeg|png|gif|pdf|txt|doc))",
+        description="Double extension bypass attempt",
+        severity="critical"
+    ),
+    CRSPattern(
+        rule_id="custom-upload-005",
+        pattern=r"(?:filename=.*\.(?:jpg|jpeg|png|gif|pdf)\.(?:php|jsp|asp|aspx|exe))",
+        description="Reverse double extension bypass",
+        severity="critical"
+    ),
+    # Null Byte Injection
+    CRSPattern(
+        rule_id="custom-upload-006",
+        pattern=r"(?:filename=.*\.(?:php|jsp|asp|aspx)(?:%00|\\x00|\\0)\.(?:jpg|jpeg|png|gif))",
+        description="Null byte extension bypass",
+        severity="critical"
+    ),
+    # Content-Type Mismatch
+    CRSPattern(
+        rule_id="custom-upload-007",
+        pattern=r"(?:Content-Type:\s*image/(?:jpeg|png|gif).*(?:<\?php|<script|<%|<jsp:))",
+        description="Content-Type mismatch (image header with code)",
+        severity="critical"
+    ),
+    # Web Shell Signatures
+    CRSPattern(
+        rule_id="custom-upload-008",
+        pattern=r"(?:(?:eval|assert|system|exec|shell_exec|passthru|popen|proc_open)\s*\(\s*\$_(?:GET|POST|REQUEST|FILES))",
+        description="PHP web shell pattern",
+        severity="critical"
+    ),
+    # Polyglot File Indicators
+    CRSPattern(
+        rule_id="custom-upload-009",
+        pattern=r"(?:GIF89a.*<\?php|JFIF.*<\?php|\x89PNG.*<\?php)",
+        description="Polyglot file (image header + PHP code)",
+        severity="critical"
+    ),
+    # SVG XSS in Upload
+    CRSPattern(
+        rule_id="custom-upload-010",
+        pattern=r"(?:<svg[^>]*>.*(?:onload|onerror|onclick)\s*=)",
+        description="SVG with embedded JavaScript",
+        severity="high"
+    ),
+    # htaccess Upload
+    CRSPattern(
+        rule_id="custom-upload-011",
+        pattern=r"(?:filename=.*\.htaccess)",
+        description="Apache .htaccess upload attempt",
         severity="critical"
     ),
 ]
@@ -873,6 +1301,8 @@ ALL_PATTERNS = {
     "deserialization": DESERIALIZATION_PATTERNS,
     "auth_bypass": AUTH_BYPASS_PATTERNS,
     "file_upload": FILE_UPLOAD_PATTERNS,
+    "idor": IDOR_PATTERNS,
+    "csrf": CSRF_PATTERNS,
 }
 
 
@@ -966,26 +1396,73 @@ def classify_text(text: str) -> dict:
 if __name__ == "__main__":
     # Test patterns
     test_cases = [
+        # SQL Injection
         ("' OR '1'='1", "sqli"),
         ("UNION SELECT * FROM users", "sqli"),
+        # XSS
         ("<script>alert(1)</script>", "xss"),
         ("onerror=alert(1)", "xss"),
+        # Command Injection
         ("; cat /etc/passwd", "cmdi"),
         ("| id", "cmdi"),
+        # Path Traversal
         ("../../etc/passwd", "path_traversal"),
         ("%2e%2e%2fetc/passwd", "path_traversal"),
+        # SSRF
         ("http://127.0.0.1:8080", "ssrf"),
         ("169.254.169.254", "ssrf"),
+        # Info Disclosure
         ("nikto", "info_disclosure"),
+        ("/.git/config", "info_disclosure"),
+        ("/.env", "info_disclosure"),
+        # Deserialization
         ("rO0ABXNy", "deserialization"),
+        # IDOR (new)
+        ("/api/users/123", "idor"),
+        ("/api/v1/order/456", "idor"),
+        ("?user_id=789", "idor"),
+        ("/users/1/orders", "idor"),
+        ("/admin/users/999", "idor"),
+        # CSRF (new)
+        ("POST /api/transfer", "csrf"),
+        ("POST /api/v1/delete", "csrf"),
+        ("PUT /api/password", "csrf"),
+        ("POST /admin/config", "csrf"),
+        ("csrf_token=bypass", "csrf"),
+        # Auth Bypass (extended)
+        ("admin:admin", "auth_bypass"),
+        ('"alg": "none"', "auth_bypass"),
+        ("admin=true", "auth_bypass"),
+        ("role=admin", "auth_bypass"),
+        ("/admin/dashboard", "auth_bypass"),
+        ("X-Original-URL: /admin", "auth_bypass"),
+        # File Upload (extended)
+        ("Content-Disposition: filename=shell.php", "file_upload"),
+        ("filename=test.php.jpg", "file_upload"),
+        ("<?php system($_GET['cmd']);", "file_upload"),
     ]
 
     print("CRS Pattern Tests")
     print("=" * 60)
 
+    passed = 0
+    failed = 0
     for text, expected in test_cases:
         result = classify_text(text)
         status = "✓" if result["family"] == expected else "✗"
-        print(f"{status} '{text[:40]}' → {result['family']} (expected: {expected})")
-        if result["matched_rules"]:
+        if result["family"] == expected:
+            passed += 1
+        else:
+            failed += 1
+        print(f"{status} '{text[:45]:<45}' → {result['family']:<18} (expected: {expected})")
+        if result["matched_rules"] and result["family"] != expected:
             print(f"  Rules: {result['matched_rules'][:3]}")
+
+    print("=" * 60)
+    print(f"Results: {passed} passed, {failed} failed, {len(test_cases)} total")
+
+    # Print pattern counts
+    print("\nPattern Counts by Family:")
+    print("-" * 40)
+    for family, patterns in ALL_PATTERNS.items():
+        print(f"  {family:<20} {len(patterns):>3} patterns")

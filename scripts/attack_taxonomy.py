@@ -264,6 +264,80 @@ ATTACK_FAMILIES = {
         ]
     ),
 
+    "idor": AttackFamily(
+        name="idor",
+        description="Insecure Direct Object Reference - Unauthorized access to resources via manipulated identifiers",
+        capec_id="CAPEC-639",
+        cwe_id="CWE-639",
+        owasp_category="A01:2021-Broken Access Control",
+        crs_rule_range=(0, 0),  # Custom detection (adversarial context)
+        severity="high",
+        variants=[
+            AttackVariant(
+                name="user_enum",
+                description="User/account ID enumeration via REST API",
+                crs_rules=["custom-idor-001", "custom-idor-002"]
+            ),
+            AttackVariant(
+                name="resource_enum",
+                description="Generic resource ID enumeration (orders, files, messages)",
+                crs_rules=["custom-idor-003", "custom-idor-004", "custom-idor-005"]
+            ),
+            AttackVariant(
+                name="param_tampering",
+                description="Query parameter ID tampering",
+                crs_rules=["custom-idor-006", "custom-idor-007"]
+            ),
+            AttackVariant(
+                name="graphql_idor",
+                description="GraphQL ID-based access control bypass",
+                crs_rules=["custom-idor-008"]
+            ),
+            AttackVariant(
+                name="uuid_enum",
+                description="UUID/GUID-based resource enumeration",
+                crs_rules=["custom-idor-009"]
+            ),
+        ]
+    ),
+
+    "csrf": AttackFamily(
+        name="csrf",
+        description="Cross-Site Request Forgery - Forcing authenticated users to perform unintended actions",
+        capec_id="CAPEC-62",
+        cwe_id="CWE-352",
+        owasp_category="A01:2021-Broken Access Control",
+        crs_rule_range=(0, 0),  # Custom detection (adversarial context)
+        severity="medium",
+        variants=[
+            AttackVariant(
+                name="state_change",
+                description="State-changing requests without CSRF protection",
+                crs_rules=["custom-csrf-001", "custom-csrf-002", "custom-csrf-003"]
+            ),
+            AttackVariant(
+                name="financial",
+                description="Financial/monetary operations vulnerable to CSRF",
+                crs_rules=["custom-csrf-004"]
+            ),
+            AttackVariant(
+                name="account_takeover",
+                description="Account settings modification via CSRF",
+                crs_rules=["custom-csrf-005"]
+            ),
+            AttackVariant(
+                name="form_action",
+                description="Form-based CSRF attacks",
+                crs_rules=["custom-csrf-006"]
+            ),
+            AttackVariant(
+                name="cross_origin",
+                description="Cross-origin request attempts",
+                crs_rules=["custom-csrf-007"]
+            ),
+        ]
+    ),
+
     "auth_bypass": AttackFamily(
         name="auth_bypass",
         description="Authentication Bypass - Circumventing authentication mechanisms",
@@ -276,22 +350,37 @@ ATTACK_FAMILIES = {
             AttackVariant(
                 name="sqli_auth",
                 description="SQL injection-based authentication bypass",
-                crs_rules=["942100", "942110"]
+                crs_rules=["942100", "942110", "custom-auth-001"]
             ),
             AttackVariant(
                 name="default_creds",
                 description="Default/common credentials",
-                crs_rules=[]
+                crs_rules=["custom-auth-003", "custom-auth-010"]
             ),
             AttackVariant(
-                name="jwt_none",
-                description="JWT algorithm confusion (alg: none)",
-                crs_rules=[]
+                name="jwt_manipulation",
+                description="JWT algorithm confusion and token manipulation",
+                crs_rules=["custom-auth-002", "custom-auth-004"]
             ),
             AttackVariant(
-                name="session_fixation",
-                description="Session fixation attacks",
-                crs_rules=[]
+                name="privilege_escalation",
+                description="Parameter-based privilege escalation",
+                crs_rules=["custom-auth-005", "custom-auth-006"]
+            ),
+            AttackVariant(
+                name="forced_browsing",
+                description="Direct access to protected endpoints",
+                crs_rules=["custom-auth-007"]
+            ),
+            AttackVariant(
+                name="header_spoofing",
+                description="IP/header spoofing for access control bypass",
+                crs_rules=["custom-auth-008"]
+            ),
+            AttackVariant(
+                name="session_manipulation",
+                description="Session fixation and manipulation attacks",
+                crs_rules=["custom-auth-009"]
             ),
         ]
     ),
@@ -468,6 +557,8 @@ CRS_RULE_FAMILY_MAP = {
     "943": "auth_bypass",
     # 944xxx - Java Attacks
     "944": "deserialization",
+    # Custom rule prefixes (for custom-xxx-nnn patterns)
+    "cus": "others",  # Default for custom patterns (handled by pattern matching)
 }
 
 
