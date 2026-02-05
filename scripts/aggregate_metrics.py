@@ -15,10 +15,45 @@ Input format (usage.jsonl):
 import json
 import sys
 import re
+from math import sqrt
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime
 from typing import Optional
+
+
+def _parse_timestamp(ts: str) -> Optional[datetime]:
+    """Parse ISO timestamp string to datetime."""
+    if not ts:
+        return None
+    formats = [
+        "%Y-%m-%dT%H:%M:%S.%fZ",
+        "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%dT%H:%M:%S.%f",
+        "%Y-%m-%dT%H:%M:%S",
+    ]
+    for fmt in formats:
+        try:
+            return datetime.strptime(ts, fmt)
+        except ValueError:
+            continue
+    try:
+        if "+" in ts:
+            ts = ts.split("+")[0]
+        elif ts.endswith("Z"):
+            ts = ts[:-1]
+        return datetime.fromisoformat(ts)
+    except ValueError:
+        return None
+
+
+def _std_dev(values: list[float]) -> float:
+    """Calculate standard deviation."""
+    if len(values) < 2:
+        return 0.0
+    mean = sum(values) / len(values)
+    variance = sum((x - mean) ** 2 for x in values) / (len(values) - 1)
+    return sqrt(variance)
 
 
 def parse_usage_jsonl(log_dir: str, start_time: Optional[str] = None, end_time: Optional[str] = None) -> list[dict]:
@@ -157,15 +192,15 @@ def aggregate(log_dir: str, start_time: Optional[str] = None, end_time: Optional
         else:
             metrics[model]["failed_calls"] += 1
 
-        metrics[model]["input_tokens"] += entry.get("prompt_tokens", 0)
-        metrics[model]["output_tokens"] += entry.get("completion_tokens", 0)
-        metrics[model]["total_tokens"] += entry.get("total_tokens", 0)
-        metrics[model]["cache_read_tokens"] += entry.get("cache_read_tokens", 0)
-        metrics[model]["cache_creation_tokens"] += entry.get("cache_creation_tokens", 0)
-        metrics[model]["total_cost_usd"] += entry.get("cost_usd", 0.0)
+        metrics[model]["input_tokens"] += entry.get("prompt_tokens") or 0
+        metrics[model]["output_tokens"] += entry.get("completion_tokens") or 0
+        metrics[model]["total_tokens"] += entry.get("total_tokens") or 0
+        metrics[model]["cache_read_tokens"] += entry.get("cache_read_tokens") or 0
+        metrics[model]["cache_creation_tokens"] += entry.get("cache_creation_tokens") or 0
+        metrics[model]["total_cost_usd"] += entry.get("cost_usd") or 0.0
 
         # Latency tracking
-        latency = entry.get("latency_ms", 0)
+        latency = entry.get("latency_ms") or 0
         if latency > 0:
             metrics[model]["latency_ms"].append(latency)
 
@@ -191,6 +226,39 @@ def aggregate(log_dir: str, start_time: Optional[str] = None, end_time: Optional
         p50_latency = sorted(latencies)[len(latencies) // 2] if latencies else 0
         p95_latency = sorted(latencies)[int(len(latencies) * 0.95)] if len(latencies) >= 20 else max_latency
 
+        # === NEW: Additional metrics (P0 enhancements) ===
+        # Wall clock duration
+        wall_clock_seconds = None
+        if data["first_call"] and data["last_call"]:
+            try:
+                first_dt = _parse_timestamp(data["first_call"])
+                last_dt = _parse_timestamp(data["last_call"])
+                if first_dt and last_dt:
+                    wall_clock_seconds = (last_dt - first_dt).total_seconds()
+            except Exception:
+                pass
+
+        # Tokens per call statistics
+        tokens_per_call = []
+        for entry in entries:
+            if entry.get("model") == model:
+                tokens = entry.get("total_tokens", 0)
+                if tokens > 0:
+                    tokens_per_call.append(tokens)
+
+        tokens_per_call_avg = sum(tokens_per_call) / len(tokens_per_call) if tokens_per_call else 0
+        tokens_per_call_std = _std_dev(tokens_per_call) if len(tokens_per_call) > 1 else 0
+
+        # Cost efficiency (cost per 1M tokens)
+        cost_efficiency = None
+        if data["total_tokens"] > 0:
+            cost_efficiency = (data["total_cost_usd"] / data["total_tokens"]) * 1_000_000
+
+        # Cache hit ratio (Claude-specific)
+        cache_hit_ratio = None
+        if data["input_tokens"] > 0 and data["cache_read_tokens"] > 0:
+            cache_hit_ratio = data["cache_read_tokens"] / data["input_tokens"]
+
         result["models"][model] = {
             "calls": data["calls"],
             "successful_calls": data["successful_calls"],
@@ -208,6 +276,12 @@ def aggregate(log_dir: str, start_time: Optional[str] = None, end_time: Optional
             "p95_latency_ms": round(p95_latency, 2),
             "first_call": data["first_call"],
             "last_call": data["last_call"],
+            # NEW metrics
+            "wall_clock_seconds": round(wall_clock_seconds, 2) if wall_clock_seconds else None,
+            "tokens_per_call_avg": round(tokens_per_call_avg, 2),
+            "tokens_per_call_std": round(tokens_per_call_std, 2),
+            "cost_per_million_tokens": round(cost_efficiency, 4) if cost_efficiency else None,
+            "cache_hit_ratio": round(cache_hit_ratio, 4) if cache_hit_ratio else None,
         }
 
     # Calculate totals

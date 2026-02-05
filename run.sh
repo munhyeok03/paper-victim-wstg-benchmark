@@ -332,9 +332,9 @@ extract_results() {
     local agent=$1
     log_info "[$agent] Extracting results from container..."
 
-    # Extract results from the container's tmpfs
+    # Extract results from the container's tmpfs to session output directory
     # Note: Conversation logs are captured via LiteLLM proxy (metrics/logs/usage.jsonl)
-    docker cp "agent-$agent:/results/." "./results/" 2>/dev/null || true
+    docker cp "agent-$agent:/results/." "./${SESSION_DIR}/output/" 2>/dev/null || true
 
     log_info "[$agent] Results extracted"
 }
@@ -346,24 +346,104 @@ remove_agent_container() {
     docker compose rm -f "agent-$agent" 2>/dev/null || true
 }
 
+# Verify challenges on victim (while still running)
+verify_challenges() {
+    local agent=$1
+    log_info "[$agent] Verifying challenges on victim..."
+
+    # Only for victims with challenge API (juice-shop)
+    case "$VICTIM_TYPE" in
+        juice-shop)
+            # Check if victim container is running
+            if [[ "$(docker inspect --format='{{.State.Running}}' "victim-$agent" 2>/dev/null)" != "true" ]]; then
+                log_warn "[$agent] Victim container is not running"
+                echo '{"agent": "'$agent'", "error": "Victim container not running"}' \
+                    > "./${SESSION_DIR}/analysis/${agent}_challenges.json"
+                return
+            fi
+
+            # Determine host port for each agent's victim
+            local host_port
+            case "$agent" in
+                claude) host_port=3001 ;;
+                codex)  host_port=3002 ;;
+                gemini) host_port=3003 ;;
+                *)      host_port=3001 ;;
+            esac
+
+            # Query challenge API via host port mapping
+            local challenges_json
+            challenges_json=$(curl -sf "http://localhost:${host_port}/api/Challenges/" 2>/dev/null) || true
+
+            if [[ -n "$challenges_json" ]]; then
+                # Extract solved challenges and save
+                echo "$challenges_json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+solved = [c for c in data.get('data', []) if c.get('solved')]
+result = {
+    'agent': '$agent',
+    'victim_type': '$VICTIM_TYPE',
+    'total_challenges': len(data.get('data', [])),
+    'solved_count': len(solved),
+    'solved_challenges': [
+        {
+            'key': c.get('key'),
+            'name': c.get('name'),
+            'category': c.get('category'),
+            'difficulty': c.get('difficulty')
+        }
+        for c in solved
+    ]
+}
+print(json.dumps(result, indent=2))
+" > "./${SESSION_DIR}/analysis/${agent}_challenges.json" 2>/dev/null
+
+                local solved_count
+                solved_count=$(jq '.solved_count' "./${SESSION_DIR}/analysis/${agent}_challenges.json" 2>/dev/null || echo "0")
+                log_info "[$agent] Challenges solved: $solved_count"
+            else
+                log_warn "[$agent] Could not query challenge API at localhost:${host_port}"
+                echo '{"agent": "'$agent'", "error": "Could not query challenge API", "attempted_port": "'$host_port'"}' \
+                    > "./${SESSION_DIR}/analysis/${agent}_challenges.json"
+            fi
+            ;;
+        bentoml|mlflow|gradio)
+            # Log-based verification (done later via vulnerability_verifier.py)
+            log_info "[$agent] Log-based verification will be done in analysis phase"
+            ;;
+        *)
+            log_info "[$agent] No challenge verification for victim type: $VICTIM_TYPE"
+            ;;
+    esac
+}
+
 # Extract metrics from LiteLLM proxy
 extract_metrics() {
     local timestamp=$1
     log_step "Extracting metrics from proxy..."
 
     # Extract proxy logs to file for debugging
-    docker logs metrics-proxy 2>&1 > "./metrics/logs/${timestamp}_proxy.log" || true
+    docker logs metrics-proxy 2>&1 > "./${SESSION_DIR}/logs/proxy.log" || true
 
-    # Copy usage.jsonl from proxy container (written by custom_logger.py)
-    docker cp metrics-proxy:/app/logs/usage.jsonl "./metrics/logs/usage.jsonl" 2>/dev/null || true
+    # Copy usage.jsonl from proxy container and filter by session time
+    docker cp metrics-proxy:/app/logs/usage.jsonl "./metrics/logs/_tmp_usage.jsonl" 2>/dev/null || true
+
+    # Extract session-specific usage logs
+    if [[ -f "./metrics/logs/_tmp_usage.jsonl" ]]; then
+        jq -c --arg s "$SESSION_START_TIME" --arg e "$SESSION_END_TIME" \
+            'select(.timestamp >= $s and .timestamp <= $e)' \
+            "./metrics/logs/_tmp_usage.jsonl" > "./${SESSION_DIR}/logs/usage.jsonl" 2>/dev/null || true
+        rm -f "./metrics/logs/_tmp_usage.jsonl"
+        log_info "Session usage log saved to ./${SESSION_DIR}/logs/usage.jsonl"
+    fi
 
     # Use aggregate_metrics.py script if available, otherwise inline Python
     if [[ -f "./scripts/aggregate_metrics.py" ]]; then
-        python3 ./scripts/aggregate_metrics.py "./metrics/logs" --output "./metrics/${timestamp}_summary.json" \
-            --start "$SESSION_START_TIME" --end "$SESSION_END_TIME"
+        python3 ./scripts/aggregate_metrics.py "./${SESSION_DIR}/logs" --output "./${SESSION_DIR}/analysis/summary.json"
     else
-        # Fallback: inline aggregation with time filtering
-        python3 - << 'PYEOF' "./metrics/logs" "./metrics/${timestamp}_summary.json" "$SESSION_START_TIME" "$SESSION_END_TIME"
+        # Fallback: inline aggregation (session logs already filtered)
+        python3 - << 'PYEOF' "./${SESSION_DIR}/logs" "./${SESSION_DIR}/analysis/summary.json"
 import sys
 import json
 from pathlib import Path
@@ -372,8 +452,6 @@ from datetime import datetime
 
 log_dir = sys.argv[1]
 output_file = sys.argv[2]
-start_time = sys.argv[3] if len(sys.argv) > 3 else None
-end_time = sys.argv[4] if len(sys.argv) > 4 else None
 
 metrics = defaultdict(lambda: {
     "calls": 0,
@@ -392,12 +470,6 @@ try:
                 continue
             try:
                 entry = json.loads(line)
-                # Time filtering
-                timestamp = entry.get("timestamp", "")
-                if start_time and timestamp < start_time:
-                    continue
-                if end_time and timestamp > end_time:
-                    continue
                 model = entry.get("model", "unknown")
                 metrics[model]["calls"] += 1
                 metrics[model]["input_tokens"] += entry.get("prompt_tokens", 0)
@@ -410,8 +482,6 @@ try:
 
     result = {
         "generated_at": datetime.now().isoformat(),
-        "session_start": start_time,
-        "session_end": end_time,
         "models": dict(metrics),
         "totals": {
             "total_calls": sum(m["calls"] for m in metrics.values()),
@@ -444,23 +514,22 @@ run_agent() {
     # Start victim for this agent
     docker compose up -d "victim-$agent"
 
-    # Wait for victim to be reachable (entrypoint.sh also waits, but we check here for early failure detection)
-    log_info "[$agent] Waiting for victim to start..."
-    local max_wait=120
+    # Wait for victim container to be running (entrypoint.sh handles HTTP connectivity check)
+    log_info "[$agent] Waiting for victim container to be ready..."
+    local max_wait=60
     local waited=0
-    while ! docker exec "victim-$agent" sh -c "wget -q --spider http://localhost:${VICTIM_PORT}/ 2>/dev/null || curl -sf http://localhost:${VICTIM_PORT}/ >/dev/null 2>&1" 2>/dev/null; do
-        # For distroless containers, just check if the container is running
-        if [[ "$(docker inspect --format='{{.State.Running}}' "victim-$agent" 2>/dev/null)" != "true" ]]; then
-            log_error "[$agent] Victim container stopped unexpectedly"
-            return 1
-        fi
+
+    while [[ "$(docker inspect --format='{{.State.Running}}' "victim-$agent" 2>/dev/null)" != "true" ]]; do
         sleep 2
         waited=$((waited + 2))
         if [[ $waited -ge $max_wait ]]; then
-            log_warn "[$agent] Victim check timed out, proceeding (entrypoint will wait)"
-            break
+            log_error "[$agent] Victim container failed to start"
+            return 1
         fi
     done
+
+    # Give the victim app some time to initialize (entrypoint.sh will do proper HTTP check)
+    sleep 5
     log_info "[$agent] Victim container is running"
 
     # Run agent
@@ -469,6 +538,9 @@ run_agent() {
 
     # Extract results from container (tmpfs)
     extract_results "$agent"
+
+    # Verify challenges while victim is still running
+    verify_challenges "$agent"
 
     # Remove agent container if not keeping
     if [[ "$KEEP_CONTAINERS" == "false" ]]; then
@@ -534,11 +606,14 @@ main() {
     # Configure victim server
     configure_victim
 
-    # Create output directories
-    mkdir -p results         # Structured findings (JSONL/Markdown)
+    # Create session-specific output directories
+    export SESSION_DIR="results/${SESSION_TIMESTAMP}"
+    mkdir -p "${SESSION_DIR}/output"     # Structured findings (JSONL/Markdown)
+    mkdir -p "${SESSION_DIR}/logs"       # Session conversation logs
+    mkdir -p "${SESSION_DIR}/analysis"   # Metrics summary and analysis
     mkdir -p prompts
-    mkdir -p output_formats  # Output format templates
-    mkdir -p metrics/logs    # Token/cost/conversation metrics from LiteLLM proxy
+    mkdir -p output_formats              # Output format templates
+    mkdir -p metrics/logs                # Global LiteLLM proxy logs
 
     # Copy prompt to prompts directory (skip if same file)
     local prompt_realpath=$(realpath "$PROMPT_FILE")
@@ -627,6 +702,12 @@ main() {
             extract_results "$agent"
         done
 
+        # Verify challenges while victims are still running
+        log_step "Verifying challenges on victims..."
+        for agent in "${AGENTS[@]}"; do
+            verify_challenges "$agent"
+        done
+
         # Remove agent containers if not keeping
         if [[ "$KEEP_CONTAINERS" == "false" ]]; then
             log_step "Removing agent containers..."
@@ -647,17 +728,16 @@ main() {
     # Extract metrics before cleanup (use session timestamp for consistency)
     extract_metrics "$SESSION_TIMESTAMP"
 
-    # Extract session-specific conversation logs from usage.jsonl (per agent)
-    log_step "Extracting session conversation logs..."
-    if [[ -f "./metrics/logs/usage.jsonl" ]]; then
+    # Extract agent-specific conversation logs from session's usage.jsonl
+    log_step "Extracting agent conversation logs..."
+    if [[ -f "./${SESSION_DIR}/logs/usage.jsonl" ]]; then
         for agent in "${AGENTS[@]}"; do
-            jq -c --arg s "$SESSION_START_TIME" --arg e "$SESSION_END_TIME" --arg a "$agent" \
-                'select(.timestamp >= $s and .timestamp <= $e and .agent == $a)' \
-                "./metrics/logs/usage.jsonl" > "./results/${SESSION_TIMESTAMP}_${agent}_conversations.jsonl" 2>/dev/null || true
-            if [[ -s "./results/${SESSION_TIMESTAMP}_${agent}_conversations.jsonl" ]]; then
-                log_info "Session conversations saved to ./results/${SESSION_TIMESTAMP}_${agent}_conversations.jsonl"
+            jq -c --arg a "$agent" 'select(.agent == $a)' \
+                "./${SESSION_DIR}/logs/usage.jsonl" > "./${SESSION_DIR}/logs/${agent}_conversations.jsonl" 2>/dev/null || true
+            if [[ -s "./${SESSION_DIR}/logs/${agent}_conversations.jsonl" ]]; then
+                log_info "Agent conversations saved to ./${SESSION_DIR}/logs/${agent}_conversations.jsonl"
             else
-                rm -f "./results/${SESSION_TIMESTAMP}_${agent}_conversations.jsonl"
+                rm -f "./${SESSION_DIR}/logs/${agent}_conversations.jsonl"
             fi
         done
     fi
@@ -674,16 +754,17 @@ main() {
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}  Execution Complete${NC}"
     echo -e "${GREEN}========================================${NC}"
-    echo -e "Results:       ${BLUE}./results/${NC}"
-    echo -e "Conversations: ${BLUE}./results/${SESSION_TIMESTAMP}_*_conversations.jsonl${NC}"
-    echo -e "Metrics:       ${BLUE}./metrics/${NC}"
+    echo -e "Session:       ${BLUE}./${SESSION_DIR}/${NC}"
+    echo -e "  Output:      ${BLUE}./${SESSION_DIR}/output/${NC}"
+    echo -e "  Logs:        ${BLUE}./${SESSION_DIR}/logs/${NC}"
+    echo -e "  Analysis:    ${BLUE}./${SESSION_DIR}/analysis/${NC}"
     echo ""
-    echo "Results:"
-    ls -la results/ 2>/dev/null || echo "(no results yet)"
+    echo "Session contents:"
+    ls -la "./${SESSION_DIR}/output/" 2>/dev/null || echo "  (no output yet)"
     echo ""
     echo "Metrics summary:"
-    if [[ -f "./metrics/${SESSION_TIMESTAMP}_summary.json" ]]; then
-        cat "./metrics/${SESSION_TIMESTAMP}_summary.json" | python3 -c "
+    if [[ -f "./${SESSION_DIR}/analysis/summary.json" ]]; then
+        cat "./${SESSION_DIR}/analysis/summary.json" | python3 -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
@@ -702,6 +783,36 @@ except Exception as e:
 " 2>/dev/null || echo "(no metrics available)"
     else
         echo "(no metrics summary generated)"
+    fi
+    echo ""
+
+    # Display challenge verification results
+    echo "Challenge verification:"
+    local has_challenges=false
+    for agent in "${AGENTS[@]}"; do
+        if [[ -f "./${SESSION_DIR}/analysis/${agent}_challenges.json" ]]; then
+            has_challenges=true
+            local solved_count
+            local total_count
+            solved_count=$(jq -r '.solved_count // 0' "./${SESSION_DIR}/analysis/${agent}_challenges.json" 2>/dev/null || echo "0")
+            total_count=$(jq -r '.total_challenges // 0' "./${SESSION_DIR}/analysis/${agent}_challenges.json" 2>/dev/null || echo "0")
+
+            if [[ "$solved_count" != "0" ]]; then
+                echo -e "  ${GREEN}$agent${NC}: $solved_count/$total_count challenges solved"
+                # Show solved challenge names
+                jq -r '.solved_challenges[]? | "    - \(.name) (\(.category))"' \
+                    "./${SESSION_DIR}/analysis/${agent}_challenges.json" 2>/dev/null | head -5
+                local more_count=$((solved_count - 5))
+                if [[ $more_count -gt 0 ]]; then
+                    echo "    ... and $more_count more"
+                fi
+            else
+                echo -e "  $agent: 0/$total_count challenges solved"
+            fi
+        fi
+    done
+    if [[ "$has_challenges" == "false" ]]; then
+        echo "  (no challenge verification for this victim type)"
     fi
     echo ""
 }

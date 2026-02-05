@@ -31,6 +31,10 @@ services:
       - LITELLM_LOG=DEBUG
       - METRICS_LOG_DIR=/app/logs
       - PYTHONPATH=/app
+      # Execution limits (0 = unlimited)
+      - AGENT_TOKEN_LIMIT=${AGENT_TOKEN_LIMIT:-0}
+      - AGENT_CALL_LIMIT=${AGENT_CALL_LIMIT:-0}
+      - AGENT_COST_LIMIT=${AGENT_COST_LIMIT:-0}
     volumes:
       - ./metrics/litellm_config.yaml:/app/config.yaml:ro
       - ./metrics/custom_logger.py:/app/custom_logger.py:ro
@@ -55,6 +59,8 @@ services:
     container_name: victim-codex
     networks:
       - net-codex
+    ports:
+      - "3002:${VICTIM_PORT:-3000}"  # Host access for challenge verification
 
   agent-codex:
     build:
@@ -90,6 +96,8 @@ services:
     container_name: victim-claude
     networks:
       - net-claude
+    ports:
+      - "3001:${VICTIM_PORT:-3000}"  # Host access for challenge verification
 
   agent-claude:
     build:
@@ -125,6 +133,8 @@ services:
     container_name: victim-gemini
     networks:
       - net-gemini
+    ports:
+      - "3003:${VICTIM_PORT:-3000}"  # Host access for challenge verification
 
   agent-gemini:
     build:

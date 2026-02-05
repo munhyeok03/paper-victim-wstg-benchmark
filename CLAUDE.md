@@ -60,7 +60,8 @@ attack-automation/
 ├── output_formats/            # 출력 형식 템플릿 (example_*.txt만 git 추적)
 │   ├── example_struct.txt     # JSONL 출력 템플릿
 │   └── example_report.txt     # Markdown 보고서 템플릿
-├── results/                   # 구조화된 결과 (JSONL/Markdown) + 세션 대화
+├── results/                   # 세션별 결과 디렉토리
+│   └── {timestamp}/           # 각 세션 (output/, logs/, analysis/)
 ├── docker-compose.yml         # 컨테이너 오케스트레이션
 ├── run.sh                     # 메인 실행 스크립트
 ├── .env                       # API 키 설정 (git ignore)
@@ -189,14 +190,60 @@ python3 scripts/aggregate_metrics.py metrics/logs/ --output summary.json
 
 ## 출력 구조
 
-### 디렉토리 분리
+### 세션별 디렉토리
 
-| 디렉토리 | 내용 | 용도 |
-|----------|------|------|
-| `results/` | 구조화된 결과 (JSONL/Markdown) + 세션 대화 | 취약점 분석 |
-| `metrics/logs/` | 전체 API 호출 로그 (대화 내용 포함) | 분석/디버깅 |
+각 실행은 세션 타임스탬프로 구분된 폴더에 저장됩니다:
 
-### 대화 로그 (`metrics/logs/usage.jsonl`)
+```
+results/
+└── 20260204_153000/              # 세션 타임스탬프
+    ├── output/                   # 에이전트 결과
+    │   ├── claude.jsonl          # Claude struct 결과
+    │   ├── codex.jsonl           # Codex struct 결과
+    │   └── gemini.md             # Gemini report 결과
+    ├── logs/                     # 세션 로그
+    │   ├── claude_conversations.jsonl
+    │   ├── codex_conversations.jsonl
+    │   └── proxy.log             # LiteLLM 프록시 로그
+    └── analysis/                 # 분석 결과
+        └── summary.json          # 메트릭 요약
+```
+
+| 하위 디렉토리 | 내용 | 용도 |
+|---------------|------|------|
+| `output/` | 구조화된 결과 (JSONL/Markdown) | 취약점 분석 |
+| `logs/` | 세션 대화 로그 (usage.jsonl, *_conversations.jsonl, proxy.log) | 에이전트 행동 분석 |
+| `analysis/` | 메트릭 요약, 취약점 검증 결과 | 비용/성능/성공률 비교 |
+
+### 실시간 Challenge 검증 (Juice Shop)
+
+Juice Shop victim 사용시, 에이전트 종료 직후 victim이 아직 실행 중일 때 `/api/Challenges/` API를 조회하여 실제 성공한 공격을 검증합니다:
+
+```
+results/{session}/analysis/
+├── summary.json              # 메트릭 요약
+├── claude_challenges.json    # Claude가 solve한 challenge 목록
+├── codex_challenges.json     # Codex가 solve한 challenge 목록
+└── gemini_challenges.json    # Gemini가 solve한 challenge 목록
+```
+
+**Challenge 검증 결과 예시:**
+```json
+{
+  "agent": "claude",
+  "victim_type": "juice-shop",
+  "total_challenges": 100,
+  "solved_count": 5,
+  "solved_challenges": [
+    {"key": "loginAdminChallenge", "name": "Login Admin", "category": "Injection", "difficulty": 2},
+    {"key": "basketAccessChallenge", "name": "View Basket", "category": "Broken Access Control", "difficulty": 2}
+  ]
+}
+```
+
+이 검증은 에이전트가 취약점을 *시도*한 것이 아니라 실제로 *성공*했는지 확인합니다
+
+### 대화 로그 (`results/{session}/logs/usage.jsonl`)
 
 모든 API 호출의 전체 대화 내용이 LiteLLM 프록시를 통해 자동 캡처됩니다:
 
@@ -222,12 +269,6 @@ python3 scripts/aggregate_metrics.py metrics/logs/ --output summary.json
 |------|------|
 | `messages` | 전체 입력 메시지 배열 (대화 히스토리) |
 | `response` | 모델 응답 텍스트 |
-
-### 세션별 대화 추출
-
-각 실행 세션의 대화가 에이전트별로 분리되어 자동 추출됩니다:
-- `results/{timestamp}_{agent}_conversations.jsonl`
-- 예: `20260126_110000_claude_conversations.jsonl`
 
 ### Struct 모드 (`--mode struct`)
 ```jsonl

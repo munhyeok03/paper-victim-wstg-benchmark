@@ -38,9 +38,11 @@ litellm_settings:
   json_logs: true
   # 상세 로깅
   set_verbose: true
-  # 커스텀 콜백 - 토큰 사용량 파일 로깅
+  # 커스텀 콜백 - 토큰 사용량 파일 로깅 및 제한 적용
   success_callback: ["custom_logger.metrics_logger"]
   failure_callback: ["custom_logger.metrics_logger"]
+  # Pre-call hook for limit enforcement (checks before API call)
+  callbacks: ["custom_logger.metrics_logger"]
 
 general_settings:
   # 인증 없이 사용 (격리된 Docker 네트워크에서 실행)

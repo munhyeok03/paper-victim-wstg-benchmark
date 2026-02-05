@@ -21,12 +21,12 @@ if [[ -z "$OUTPUT_FORMAT_FILE" ]]; then
     fi
 fi
 
-# Use session timestamp from run.sh (fallback to local timestamp)
-TIMESTAMP=${SESSION_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}
+# Output file extension based on mode
 OUTPUT_EXT=$([[ "$OUTPUT_MODE" == "struct" ]] && echo "jsonl" || echo "md")
 
 # Result file (structured findings) - logs are captured via LiteLLM proxy
-RESULT_FILE="/results/${TIMESTAMP}_${AGENT_TYPE}.${OUTPUT_EXT}"
+# Note: File is written to /results/ which is extracted to session's output/ dir
+RESULT_FILE="/results/${AGENT_TYPE}.${OUTPUT_EXT}"
 
 echo "=========================================="
 echo "AI Agent Attack Automation"
@@ -113,6 +113,9 @@ mkdir -p /results
 # Create empty result file (model will write to it)
 touch "$RESULT_FILE"
 
+# Execute agent and capture output/exit code
+set +e  # Don't exit on error
+
 case "$AGENT_TYPE" in
     codex)
         # OpenAI Codex CLI with GPT-5.2-Codex model
@@ -123,14 +126,16 @@ case "$AGENT_TYPE" in
         # --yolo: Bypass all approvals and sandbox (for containerized execution)
         # --skip-git-repo-check: Skip git repository check for containerized execution
         # Conversation logs captured via LiteLLM proxy (metrics/logs/usage.jsonl)
-        codex exec --model gpt-5.2-codex --yolo --skip-git-repo-check "$FULL_PROMPT"
+        OUTPUT=$(codex exec --model gpt-5.2-codex --yolo --skip-git-repo-check "$FULL_PROMPT" 2>&1)
+        EXIT_CODE=$?
         ;;
     claude)
         # Claude Code CLI with Opus 4.5 model
         # --model: Use Claude Opus 4.5 for state-of-the-art software engineering
         # Using print mode for non-interactive execution
         # Conversation logs captured via LiteLLM proxy (metrics/logs/usage.jsonl)
-        claude --model claude-opus-4-5-20251101 --print --dangerously-skip-permissions "$FULL_PROMPT"
+        OUTPUT=$(claude --model claude-opus-4-5-20251101 --print --dangerously-skip-permissions "$FULL_PROMPT" 2>&1)
+        EXIT_CODE=$?
         ;;
     gemini)
         # Gemini CLI with Gemini 3 Pro model
@@ -138,7 +143,8 @@ case "$AGENT_TYPE" in
         # -p: Non-interactive mode, --yolo: Auto-approve tool calls
         # GEMINI_API_KEY env var is set by docker-compose
         # Conversation logs captured via LiteLLM proxy (metrics/logs/usage.jsonl)
-        gemini --model gemini-3-pro-preview -p "$FULL_PROMPT" --yolo
+        OUTPUT=$(gemini --model gemini-3-pro-preview -p "$FULL_PROMPT" --yolo 2>&1)
+        EXIT_CODE=$?
         ;;
     *)
         echo "ERROR: Unknown agent type: $AGENT_TYPE"
@@ -146,9 +152,42 @@ case "$AGENT_TYPE" in
         ;;
 esac
 
+set -e  # Re-enable exit on error
+
+# Check for limit exceeded (HTTP 429 from proxy)
+if echo "$OUTPUT" | grep -q "limit_exceeded"; then
+    echo ""
+    echo "=========================================="
+    echo "LIMIT REACHED - Agent terminated gracefully"
+    echo "=========================================="
+    # Extract limit details from error message
+    echo "$OUTPUT" | grep -o '"message":"[^"]*"' | sed 's/"message":"//;s/"$//' || true
+    echo ""
+    echo "Full output:"
+    echo "$OUTPUT"
+    echo ""
+    echo "=========================================="
+    echo "Results saved to: $RESULT_FILE"
+    echo "Conversation logs: metrics/logs/usage.jsonl (via LiteLLM proxy)"
+    echo "=========================================="
+    exit 0  # Exit with success code (intentional termination)
+fi
+
+# Print output for normal execution
+echo "$OUTPUT"
+
+# Exit with original exit code for non-limit errors
+if [[ $EXIT_CODE -ne 0 ]]; then
+    echo ""
+    echo "=========================================="
+    echo "Agent exited with code: $EXIT_CODE"
+    echo "=========================================="
+    exit $EXIT_CODE
+fi
+
 echo ""
 echo "=========================================="
-echo "Attack completed!"
+echo "Attack completed successfully!"
 echo "Results saved to: $RESULT_FILE"
 echo "Conversation logs: metrics/logs/usage.jsonl (via LiteLLM proxy)"
 echo "=========================================="
