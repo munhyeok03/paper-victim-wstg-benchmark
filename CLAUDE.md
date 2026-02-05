@@ -27,6 +27,9 @@ LLM 보안 에이전트(Claude, Codex, Gemini)의 사이버 공격 수행 능력
 │  │  victim   │  │  │  victim   │  │  │  victim   │  │
 │  └─────┬─────┘  │  └─────┬─────┘  │  └─────┬─────┘  │
 │  ┌─────┴─────┐  │  ┌─────┴─────┐  │  ┌─────┴─────┐  │
+│  │http-logger│  │  │http-logger│  │  │http-logger│  │
+│  └─────┬─────┘  │  └─────┬─────┘  │  └─────┬─────┘  │
+│  ┌─────┴─────┐  │  ┌─────┴─────┐  │  ┌─────┴─────┐  │
 │  │  agent-   │  │  │  agent-   │  │  │  agent-   │  │
 │  │  codex    │  │  │  claude   │  │  │  gemini   │  │
 │  └───────────┘  │  └───────────┘  │  └───────────┘  │
@@ -36,6 +39,7 @@ LLM 보안 에이전트(Claude, Codex, Gemini)의 사이버 공격 수행 능력
 - 각 에이전트는 **격리된 Docker 네트워크**에서 독립 victim과 함께 실행
 - 에이전트 간 크로스 통신 불가 (공정한 비교 보장)
 - **metrics-proxy**: 모든 API 호출을 중계하여 토큰/비용 메트릭 수집
+- **http-logger**: mitmproxy 기반 HTTP 트래픽 로깅 (에이전트 ↔ victim 간 모든 요청/응답)
 
 ## 디렉토리 구조
 
@@ -50,6 +54,7 @@ attack-automation/
 ├── metrics/                   # 메트릭 수집
 │   ├── litellm_config.yaml    # LiteLLM 프록시 설정
 │   ├── custom_logger.py       # 커스텀 콜백 (usage.jsonl 기록)
+│   ├── http_logger.py         # mitmproxy HTTP 트래픽 로깅 스크립트
 │   └── logs/
 │       ├── usage.jsonl        # API 호출별 전체 대화 + 메트릭
 │       └── *_proxy.log        # 프록시 디버그 로그
@@ -61,7 +66,7 @@ attack-automation/
 │   ├── example_struct.txt     # JSONL 출력 템플릿
 │   └── example_report.txt     # Markdown 보고서 템플릿
 ├── results/                   # 세션별 결과 디렉토리
-│   └── {timestamp}/           # 각 세션 (output/, logs/, analysis/)
+│   └── {timestamp}/           # 각 세션 (아래 구조 참조)
 ├── docker-compose.yml         # 컨테이너 오케스트레이션
 ├── run.sh                     # 메인 실행 스크립트
 ├── .env                       # API 키 설정 (git ignore)
@@ -201,10 +206,15 @@ results/
     │   ├── claude.jsonl          # Claude struct 결과
     │   ├── codex.jsonl           # Codex struct 결과
     │   └── gemini.md             # Gemini report 결과
-    ├── logs/                     # 세션 로그
+    ├── api-logs/                 # LiteLLM API 로그
+    │   ├── usage.jsonl           # 전체 API 호출 메트릭
     │   ├── claude_conversations.jsonl
     │   ├── codex_conversations.jsonl
     │   └── proxy.log             # LiteLLM 프록시 로그
+    ├── http-logs/                # HTTP 트래픽 로그 (에이전트 ↔ victim)
+    │   ├── claude_http.jsonl     # Claude의 HTTP 요청/응답
+    │   ├── codex_http.jsonl      # Codex의 HTTP 요청/응답
+    │   └── gemini_http.jsonl     # Gemini의 HTTP 요청/응답
     └── analysis/                 # 분석 결과
         └── summary.json          # 메트릭 요약
 ```
@@ -212,7 +222,8 @@ results/
 | 하위 디렉토리 | 내용 | 용도 |
 |---------------|------|------|
 | `output/` | 구조화된 결과 (JSONL/Markdown) | 취약점 분석 |
-| `logs/` | 세션 대화 로그 (usage.jsonl, *_conversations.jsonl, proxy.log) | 에이전트 행동 분석 |
+| `api-logs/` | LiteLLM API 대화 로그 (usage.jsonl, *_conversations.jsonl, proxy.log) | 에이전트 행동/사고 분석 |
+| `http-logs/` | HTTP 트래픽 로그 (*_http.jsonl) | 실제 공격 요청/응답 분석 |
 | `analysis/` | 메트릭 요약, 취약점 검증 결과 | 비용/성능/성공률 비교 |
 
 ### 실시간 Challenge 검증 (Juice Shop)
@@ -243,7 +254,7 @@ results/{session}/analysis/
 
 이 검증은 에이전트가 취약점을 *시도*한 것이 아니라 실제로 *성공*했는지 확인합니다
 
-### 대화 로그 (`results/{session}/logs/usage.jsonl`)
+### API 대화 로그 (`results/{session}/api-logs/usage.jsonl`)
 
 모든 API 호출의 전체 대화 내용이 LiteLLM 프록시를 통해 자동 캡처됩니다:
 
@@ -269,6 +280,40 @@ results/{session}/analysis/
 |------|------|
 | `messages` | 전체 입력 메시지 배열 (대화 히스토리) |
 | `response` | 모델 응답 텍스트 |
+
+### HTTP 트래픽 로그 (`results/{session}/http-logs/{agent}_http.jsonl`)
+
+에이전트가 victim 서버로 보낸 모든 HTTP 요청/응답이 mitmproxy를 통해 캡처됩니다:
+
+```jsonl
+{
+  "timestamp": "2026-02-05T10:30:01.234Z",
+  "agent": "claude",
+  "request": {
+    "method": "POST",
+    "url": "http://victim-claude:3000/rest/user/login",
+    "path": "/rest/user/login",
+    "headers": {"Content-Type": "application/json", "User-Agent": "curl/8.0"},
+    "body": "{\"email\":\"' OR 1=1--\",\"password\":\"x\"}"
+  },
+  "response": {
+    "status_code": 200,
+    "reason": "OK",
+    "headers": {"Content-Type": "application/json"},
+    "body": "{\"authentication\":{\"token\":\"...\"}}"
+  },
+  "duration_ms": 45.23
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `request.method` | HTTP 메서드 (GET, POST, PUT, DELETE 등) |
+| `request.url` | 전체 요청 URL |
+| `request.body` | 요청 본문 (최대 50KB) |
+| `response.status_code` | HTTP 응답 코드 |
+| `response.body` | 응답 본문 (최대 50KB) |
+| `duration_ms` | 요청-응답 소요 시간 |
 
 ### Struct 모드 (`--mode struct`)
 ```jsonl

@@ -424,7 +424,7 @@ extract_metrics() {
     log_step "Extracting metrics from proxy..."
 
     # Extract proxy logs to file for debugging
-    docker logs metrics-proxy 2>&1 > "./${SESSION_DIR}/logs/proxy.log" || true
+    docker logs metrics-proxy 2>&1 > "./${SESSION_DIR}/api-logs/proxy.log" || true
 
     # Copy usage.jsonl from proxy container and filter by session time
     docker cp metrics-proxy:/app/logs/usage.jsonl "./metrics/logs/_tmp_usage.jsonl" 2>/dev/null || true
@@ -433,17 +433,17 @@ extract_metrics() {
     if [[ -f "./metrics/logs/_tmp_usage.jsonl" ]]; then
         jq -c --arg s "$SESSION_START_TIME" --arg e "$SESSION_END_TIME" \
             'select(.timestamp >= $s and .timestamp <= $e)' \
-            "./metrics/logs/_tmp_usage.jsonl" > "./${SESSION_DIR}/logs/usage.jsonl" 2>/dev/null || true
+            "./metrics/logs/_tmp_usage.jsonl" > "./${SESSION_DIR}/api-logs/usage.jsonl" 2>/dev/null || true
         rm -f "./metrics/logs/_tmp_usage.jsonl"
-        log_info "Session usage log saved to ./${SESSION_DIR}/logs/usage.jsonl"
+        log_info "Session usage log saved to ./${SESSION_DIR}/api-logs/usage.jsonl"
     fi
 
     # Use aggregate_metrics.py script if available, otherwise inline Python
     if [[ -f "./scripts/aggregate_metrics.py" ]]; then
-        python3 ./scripts/aggregate_metrics.py "./${SESSION_DIR}/logs" --output "./${SESSION_DIR}/analysis/summary.json"
+        python3 ./scripts/aggregate_metrics.py "./${SESSION_DIR}/api-logs" --output "./${SESSION_DIR}/analysis/summary.json"
     else
         # Fallback: inline aggregation (session logs already filtered)
-        python3 - << 'PYEOF' "./${SESSION_DIR}/logs" "./${SESSION_DIR}/analysis/summary.json"
+        python3 - << 'PYEOF' "./${SESSION_DIR}/api-logs" "./${SESSION_DIR}/analysis/summary.json"
 import sys
 import json
 from pathlib import Path
@@ -532,6 +532,11 @@ run_agent() {
     sleep 5
     log_info "[$agent] Victim container is running"
 
+    # Start HTTP traffic logger proxy
+    log_info "[$agent] Starting HTTP traffic logger..."
+    docker compose up -d "http-logger-$agent"
+    sleep 2
+
     # Run agent
     log_info "[$agent] Executing attack..."
     docker compose up "agent-$agent"
@@ -609,7 +614,8 @@ main() {
     # Create session-specific output directories
     export SESSION_DIR="results/${SESSION_TIMESTAMP}"
     mkdir -p "${SESSION_DIR}/output"     # Structured findings (JSONL/Markdown)
-    mkdir -p "${SESSION_DIR}/logs"       # Session conversation logs
+    mkdir -p "${SESSION_DIR}/api-logs"   # LiteLLM API conversation logs
+    mkdir -p "${SESSION_DIR}/http-logs"  # HTTP traffic logs (agent <-> victim)
     mkdir -p "${SESSION_DIR}/analysis"   # Metrics summary and analysis
     mkdir -p prompts
     mkdir -p output_formats              # Output format templates
@@ -675,6 +681,14 @@ main() {
             log_info "  victim-$agent: started"
         done
 
+        # Start all HTTP traffic loggers
+        log_info "Starting HTTP traffic loggers..."
+        for agent in "${AGENTS[@]}"; do
+            docker compose up -d "http-logger-$agent"
+            log_info "  http-logger-$agent: started"
+        done
+        sleep 2
+
         # Run all agents in parallel
         PIDS=()
         for agent in "${AGENTS[@]}"; do
@@ -730,17 +744,27 @@ main() {
 
     # Extract agent-specific conversation logs from session's usage.jsonl
     log_step "Extracting agent conversation logs..."
-    if [[ -f "./${SESSION_DIR}/logs/usage.jsonl" ]]; then
+    if [[ -f "./${SESSION_DIR}/api-logs/usage.jsonl" ]]; then
         for agent in "${AGENTS[@]}"; do
             jq -c --arg a "$agent" 'select(.agent == $a)' \
-                "./${SESSION_DIR}/logs/usage.jsonl" > "./${SESSION_DIR}/logs/${agent}_conversations.jsonl" 2>/dev/null || true
-            if [[ -s "./${SESSION_DIR}/logs/${agent}_conversations.jsonl" ]]; then
-                log_info "Agent conversations saved to ./${SESSION_DIR}/logs/${agent}_conversations.jsonl"
+                "./${SESSION_DIR}/api-logs/usage.jsonl" > "./${SESSION_DIR}/api-logs/${agent}_conversations.jsonl" 2>/dev/null || true
+            if [[ -s "./${SESSION_DIR}/api-logs/${agent}_conversations.jsonl" ]]; then
+                log_info "Agent conversations saved to ./${SESSION_DIR}/api-logs/${agent}_conversations.jsonl"
             else
-                rm -f "./${SESSION_DIR}/logs/${agent}_conversations.jsonl"
+                rm -f "./${SESSION_DIR}/api-logs/${agent}_conversations.jsonl"
             fi
         done
     fi
+
+    # Log HTTP traffic summary
+    log_step "HTTP traffic logs..."
+    for agent in "${AGENTS[@]}"; do
+        local http_log="./${SESSION_DIR}/http-logs/${agent}_http.jsonl"
+        if [[ -f "$http_log" ]]; then
+            local request_count=$(wc -l < "$http_log")
+            log_info "[$agent] $request_count HTTP requests logged"
+        fi
+    done
 
     # Cleanup
     if [[ "$KEEP_CONTAINERS" == "false" ]]; then
@@ -756,7 +780,8 @@ main() {
     echo -e "${GREEN}========================================${NC}"
     echo -e "Session:       ${BLUE}./${SESSION_DIR}/${NC}"
     echo -e "  Output:      ${BLUE}./${SESSION_DIR}/output/${NC}"
-    echo -e "  Logs:        ${BLUE}./${SESSION_DIR}/logs/${NC}"
+    echo -e "  API Logs:    ${BLUE}./${SESSION_DIR}/api-logs/${NC}"
+    echo -e "  HTTP Logs:   ${BLUE}./${SESSION_DIR}/http-logs/${NC}"
     echo -e "  Analysis:    ${BLUE}./${SESSION_DIR}/analysis/${NC}"
     echo ""
     echo "Session contents:"
