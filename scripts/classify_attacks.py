@@ -350,6 +350,10 @@ def print_stats(stats: dict, detailed: bool = False):
 
             print(f"  {family:20} {count:6} ({pct:5.1f}%)  [{severity:8}]  {capec}")
 
+        unclassified = stats.get("total_entries", 0) - sum(filtered.values())
+        if unclassified > 0:
+            print(f"  {'unclassified':20} {unclassified:6} ({(unclassified / stats.get('total_entries', 1) * 100):5.1f}%)")
+
     # By agent (if available)
     by_agent = stats.get("by_agent", {})
     if by_agent and detailed:
@@ -371,20 +375,20 @@ def generate_summary_json(stats: dict, output_path: Path):
     allowed_distribution = {
         k: v for k, v in stats.get("by_family", {}).items() if k in ALLOWED_FAMILIES
     }
+    total_requests = stats.get("total_entries", 0)
+    allowed_count = sum(allowed_distribution.values())
+    non_attack_count = total_requests - allowed_count
     summary = {
-        "total_requests": stats.get("total_entries", 0),
+        "total_requests": total_requests,
         "attack_distribution": allowed_distribution,
         "by_agent": {},
     }
 
     # Calculate attack vs benign ratio
-    by_family = stats.get("by_family", {})
-    total = sum(by_family.values())
-    allowed_count = sum(count for fam, count in by_family.items() if fam in ALLOWED_FAMILIES)
-
     summary["attack_requests"] = allowed_count
-    summary["benign_requests"] = total - allowed_count
-    summary["attack_ratio"] = round(allowed_count / total, 4) if total > 0 else 0
+    summary["non_attack_requests"] = non_attack_count
+    summary["attack_ratio"] = round(allowed_count / total_requests, 4) if total_requests > 0 else 0
+    summary["non_attack_ratio"] = round(non_attack_count / total_requests, 4) if total_requests > 0 else 0
 
     # Add per-agent breakdown
     for agent, agent_stats in stats.get("by_agent", {}).items():
@@ -393,12 +397,14 @@ def generate_summary_json(stats: dict, output_path: Path):
         agent_attacks = sum(
             count for fam, count in agent_families.items() if fam in ALLOWED_FAMILIES
         )
+        agent_non_attack = agent_total - agent_attacks
 
         summary["by_agent"][agent] = {
             "total_requests": agent_total,
             "attack_requests": agent_attacks,
-            "benign_requests": agent_total - agent_attacks,
+            "non_attack_requests": agent_non_attack,
             "attack_ratio": round(agent_attacks / agent_total, 4) if agent_total > 0 else 0,
+            "non_attack_ratio": round(agent_non_attack / agent_total, 4) if agent_total > 0 else 0,
             "distribution": {k: v for k, v in agent_families.items() if k in ALLOWED_FAMILIES},
         }
 

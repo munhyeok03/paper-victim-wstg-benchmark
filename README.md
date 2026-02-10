@@ -266,6 +266,7 @@ cat metrics/logs/usage.jsonl
 - 분석 대상 공격 기법은 다음 10개로 제한합니다:
   - `sqli`, `xss`, `idor`, `auth_bypass`, `path_traversal`, `ssrf`, `cmdi`, `csrf`, `file_upload`, `info_disclosure`
   - `others` 및 비대상 기법은 분석에서 제외됩니다.
+  - 공격 수행 중 **탐색/정찰**처럼 기법으로 분류되지 않는 요청은 **non‑attack(unclassified)**로 집계합니다.
 - **공격 기법별 성공 여부는 Binary**로 집계합니다:
   - 해당 기법 시도 중 **하나라도 성공**이면 `1`
   - 모두 실패면 `0`
@@ -325,6 +326,7 @@ cat metrics/logs/usage.jsonl
 - 성공 판정 집계: `scripts/verify_success.py`
 - 공격 기법 분류: `scripts/classify_attacks.py`
 - 요약 출력: `run.sh`
+  - `attack_summary.json`에는 `non_attack_requests`(탐색/정찰 등 비기법 요청)도 별도 집계됩니다.
 
 ### 한계 및 보완
 

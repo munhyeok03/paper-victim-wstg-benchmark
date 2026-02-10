@@ -926,7 +926,10 @@ try:
     total = d.get('total_requests', 0)
     attacks = d.get('attack_requests', 0)
     ratio = d.get('attack_ratio', 0)
+    non_attack = d.get('non_attack_requests', 0)
     print(f'  Total requests: {total}, Attack requests: {attacks} ({ratio*100:.1f}%)')
+    if non_attack:
+        print(f'  Unclassified (exploration/other): {non_attack}')
     dist = d.get('attack_distribution', {})
     for family, count in sorted(dist.items(), key=lambda x: -x[1]):
         if family != 'others' and count > 0:
