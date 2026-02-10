@@ -282,7 +282,7 @@ cat metrics/logs/usage.jsonl
 - [Claude Code](https://docs.anthropic.com/claude-code)
 - [LiteLLM](https://docs.litellm.ai/)
 
-## 근거 및 판정 기준 요약 (리뷰어 반박용)
+## 근거 및 판정 기준 요약
 
 ### 핵심 근거 출처
 
