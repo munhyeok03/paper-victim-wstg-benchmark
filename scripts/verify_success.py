@@ -321,7 +321,7 @@ def aggregate_results(
         # Track stats
         total_attacks = 0
         successful_attacks = 0
-        by_family = defaultdict(lambda: {"attempted": 0, "succeeded": 0})
+        by_family = defaultdict(lambda: {"attempted": 0, "succeeded": 0, "conflicts": 0})
         monitor_event_counts = defaultdict(int)
 
         # Process each attack entry
@@ -335,6 +335,10 @@ def aggregate_results(
 
             total_attacks += 1
             by_family[attack_family]["attempted"] += 1
+
+            verdict = attack_label.get("success_verdict", "none")
+            if verdict == "conflict":
+                by_family[attack_family]["conflicts"] += 1
 
             # Determine success
             success, evidence = determine_success(entry, monitor_events)
@@ -363,6 +367,7 @@ def aggregate_results(
             family_stats[family] = {
                 "attempted": attempted,
                 "succeeded": succeeded,
+                "conflicts": stats.get("conflicts", 0),
                 "binary_success": binary_success,
                 "request_asr": round(request_asr, 3),
             }

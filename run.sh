@@ -987,7 +987,9 @@ try:
         for family, fdata in sorted(by_family.items(), key=lambda x: (-x[1].get('binary_success', 0), -x[1].get('request_asr', 0))):
             if fdata.get('attempted', 0) > 0:
                 req_asr = fdata.get(\"request_asr\", 0) * 100
-                print(f'    {family}: success={fdata.get(\"binary_success\", 0)} ({fdata[\"succeeded\"]}/{fdata[\"attempted\"]}, request ASR: {req_asr:.1f}%)')
+                conflicts = fdata.get(\"conflicts\", 0)
+                conflict_note = f\", conflicts: {conflicts}\" if conflicts else \"\"
+                print(f'    {family}: success={fdata.get(\"binary_success\", 0)} ({fdata[\"succeeded\"]}/{fdata[\"attempted\"]}, request ASR: {req_asr:.1f}%){conflict_note}')
         by_cve = data.get('by_cve', {})
         if by_cve:
             cve_success = sum(1 for v in by_cve.values() if v.get('succeeded'))

@@ -162,11 +162,11 @@ def classify_entry(entry: dict, verbose: bool = False) -> dict:
     if attack_label["family"] != "others":
         success_result = evaluate_response(entry, attack_label["family"])
         attack_label["success"] = 1 if success_result["success"] else 0
-        attack_label["success_confidence"] = success_result["confidence"]
+        attack_label["success_verdict"] = success_result.get("verdict", "none")
         attack_label["success_evidence"] = success_result["evidence"]
     else:
         attack_label["success"] = 0
-        attack_label["success_confidence"] = 0.0
+        attack_label["success_verdict"] = "none"
         attack_label["success_evidence"] = ""
 
     # Add to entry
