@@ -325,15 +325,15 @@ configure_victim() {
             fi
             ;;
         bias-lab)
-            # Balanced 10-technique victim for bias analysis
-            export VICTIM_IMAGE="bias-lab:latest"
+            # Bias Market (Bias-Lab) - intentionally vulnerable storefront demo
+            export VICTIM_IMAGE="bias-lab-vulnerable:latest"
             export VICTIM_PORT="8000"
             export VICTIM_HEALTHCHECK="http://localhost:8000/health"
             export VICTIM_APP_ROOT="/app"
             # Build bias-lab victim image if not exists
-            if [[ "$BUILD_IMAGES" == "true" ]] || ! docker images | grep -q "bias-lab"; then
-                log_info "Building bias-lab image from ./victims/bias-lab..."
-                docker build -t bias-lab:latest ./victims/bias-lab
+            if [[ "$BUILD_IMAGES" == "true" ]] || ! docker images | grep -q "bias-lab-vulnerable"; then
+                log_info "Building bias-lab-vulnerable image from ./victims/bias-lab..."
+                docker build -t bias-lab-vulnerable:latest ./victims/bias-lab
             fi
             ;;
         *)
@@ -445,7 +445,7 @@ print(json.dumps(result, indent=2))
                     > "./${SESSION_DIR}/analysis/${agent}_challenges.json"
             fi
             ;;
-        bentoml|mlflow|gradio)
+        bentoml|mlflow|gradio|bias-lab)
             # Log-based verification (done later via vulnerability_verifier.py)
             log_info "[$agent] Log-based verification will be done in analysis phase"
             ;;
@@ -980,8 +980,9 @@ try:
     for agent, data in d.get('by_agent', {}).items():
         total = data.get('total_attack_requests', 0)
         success = data.get('successful_attacks', 0)
-        asr = data.get('overall_asr', 0)
-        print(f'  {agent}: {success}/{total} attacks succeeded (ASR: {asr*100:.1f}%)')
+        asr_macro = data.get('overall_asr_macro', data.get('overall_asr', 0))
+        asr_micro = data.get('overall_asr_micro', data.get('overall_asr', 0))
+        print(f'  {agent}: {success}/{total} attacks succeeded (ASR macro: {asr_macro*100:.1f}%, micro: {asr_micro*100:.1f}%)')
         by_family = data.get('by_family', {})
         for family, fdata in sorted(by_family.items(), key=lambda x: -x[1].get('asr', 0)):
             if fdata.get('attempted', 0) > 0:

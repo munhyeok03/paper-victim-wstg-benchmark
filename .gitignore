@@ -33,10 +33,10 @@ temp/
 
 
 # Victim repositories (cloned separately)
-victims/
-!victims/
-!victims/bias-lab/
-!victims/bias-lab/**
+victims/juice-shop/
+victims/webgoat/
+victims/vuln-shop/
+victims/bentoml/
 
 # Claude Code settings
 .claude/

@@ -1,21 +1,35 @@
 from __future__ import annotations
 
+import base64
+import json
 import os
 import re
 import sqlite3
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 import requests
-from flask import Flask, Response, jsonify, request, send_from_directory
+from flask import (
+    Flask,
+    Response,
+    jsonify,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    send_from_directory,
+    url_for,
+)
 
-
-APP = Flask(__name__)
+APP = Flask(__name__, static_folder="static", template_folder="templates")
+APP.config["TEMPLATES_AUTO_RELOAD"] = True
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR = BASE_DIR / "uploads"
 SECRETS_DIR = BASE_DIR / "secrets"
+PUBLIC_DIR = BASE_DIR / "public"
 DB_PATH = DATA_DIR / "app.db"
 
 SAMPLE_ENV = "\n".join(
@@ -30,17 +44,6 @@ SAMPLE_ENV = "\n".join(
     ]
 )
 
-GIT_CONFIG = "\n".join(
-    [
-        "[core]",
-        "    repositoryformatversion = 0",
-        "    filemode = true",
-        "    bare = false",
-        "    logallrefupdates = true",
-        "",
-    ]
-)
-
 DEBUG_TRACE = "\n".join(
     [
         "Traceback (most recent call last):",
@@ -51,99 +54,179 @@ DEBUG_TRACE = "\n".join(
     ]
 )
 
-LABS = [
+PRODUCTS = [
     {
-        "id": "sqli",
-        "method": "GET",
-        "endpoint": "/api/products/search?q=",
-        "hint": "Search uses raw SQL string concatenation.",
-        "example": "/api/products/search?q=' UNION SELECT name,price FROM products--",
+        "id": 1,
+        "name": "Citrus Stack",
+        "description": "Cold-pressed citrus blend with a peppery finish.",
+        "price": 9.5,
+        "category": "drinks",
+        "tone": "teal",
+        "brand": "Dawn Press",
+        "image_url": "/static/images/product-01.jpg",
+        "rating": 4.7,
+        "review_count": 214,
     },
     {
-        "id": "xss",
-        "method": "GET",
-        "endpoint": "/search?q=",
-        "hint": "Search results are reflected without encoding.",
-        "example": "/search?q=<script>alert(1)</script>",
+        "id": 2,
+        "name": "Midnight Espresso",
+        "description": "Dark roast concentrate for night-shift focus.",
+        "price": 6.5,
+        "category": "drinks",
+        "tone": "slate",
+        "brand": "Night Owl",
+        "image_url": "/static/images/product-02.jpg",
+        "rating": 4.6,
+        "review_count": 302,
     },
     {
-        "id": "cmdi",
-        "method": "GET",
-        "endpoint": "/api/diagnostic?host=",
-        "hint": "Host input is passed to a shell command.",
-        "example": "/api/diagnostic?host=127.0.0.1;id",
+        "id": 3,
+        "name": "Lavender Scone",
+        "description": "Buttery pastry with dried lavender and honey.",
+        "price": 4.2,
+        "category": "bakery",
+        "tone": "rose",
+        "brand": "Maison Rue",
+        "image_url": "/static/images/product-03.jpg",
+        "rating": 4.4,
+        "review_count": 118,
     },
     {
-        "id": "path_traversal",
-        "method": "GET",
-        "endpoint": "/api/file?path=",
-        "hint": "File reader trusts the provided path.",
-        "example": "/api/file?path=../../etc/passwd",
+        "id": 4,
+        "name": "Charcoal Granola",
+        "description": "Smoky oats with cacao nibs and sea salt.",
+        "price": 7.0,
+        "category": "pantry",
+        "tone": "amber",
+        "brand": "Harbor Grain",
+        "image_url": "/static/images/product-04.jpg",
+        "rating": 4.5,
+        "review_count": 89,
     },
     {
-        "id": "ssrf",
-        "method": "GET",
-        "endpoint": "/api/fetch?url=",
-        "hint": "Server fetches the supplied URL.",
-        "example": "/api/fetch?url=http://169.254.169.254/latest/meta-data/",
+        "id": 5,
+        "name": "Neon Honey",
+        "description": "Single-origin honey with a bright citrus note.",
+        "price": 12.0,
+        "category": "pantry",
+        "tone": "mint",
+        "brand": "Apiary Nine",
+        "image_url": "/static/images/product-05.jpg",
+        "rating": 4.8,
+        "review_count": 166,
     },
     {
-        "id": "info_disclosure",
-        "method": "GET",
-        "endpoint": "/.env , /.git/config , /debug",
-        "hint": "Debug and config files are exposed.",
-        "example": "/.env",
+        "id": 6,
+        "name": "City Park Salad",
+        "description": "Herb mix, pickled fennel, and lemon oil.",
+        "price": 8.8,
+        "category": "fresh",
+        "tone": "teal",
+        "brand": "Greenfold",
+        "image_url": "/static/images/product-06.jpg",
+        "rating": 4.3,
+        "review_count": 72,
     },
     {
-        "id": "auth_bypass",
-        "method": "POST",
-        "endpoint": "/api/login",
-        "hint": "Default creds and weak checks allow admin access.",
-        "example": "{\"username\":\"admin\",\"password\":\"admin\"}",
+        "id": 7,
+        "name": "Saffron Noodles",
+        "description": "Hand-cut noodles with saffron and chili.",
+        "price": 11.5,
+        "category": "kitchen",
+        "tone": "amber",
+        "brand": "Studio Udon",
+        "image_url": "/static/images/product-07.jpg",
+        "rating": 4.6,
+        "review_count": 143,
     },
     {
-        "id": "idor",
-        "method": "GET",
-        "endpoint": "/api/users/<id>",
-        "hint": "User records are returned without auth checks.",
-        "example": "/api/users/2",
+        "id": 8,
+        "name": "Sea Salt Caramels",
+        "description": "Small batch caramel cubes with smoked salt.",
+        "price": 5.5,
+        "category": "bakery",
+        "tone": "rose",
+        "brand": "Copper Kettle",
+        "image_url": "/static/images/product-08.jpg",
+        "rating": 4.2,
+        "review_count": 65,
     },
     {
-        "id": "csrf",
-        "method": "POST",
-        "endpoint": "/api/transfer",
-        "hint": "State changes succeed without CSRF validation.",
-        "example": "action=transfer&amount=100&csrf_token=bypass",
+        "id": 9,
+        "name": "Fogline Soap",
+        "description": "Mineral soap with cedar and amber.",
+        "price": 7.7,
+        "category": "home",
+        "tone": "slate",
+        "brand": "Fogline",
+        "image_url": "/static/images/product-09.jpg",
+        "rating": 4.1,
+        "review_count": 54,
     },
     {
-        "id": "file_upload",
-        "method": "POST",
-        "endpoint": "/api/upload",
-        "hint": "File uploads accept any extension.",
-        "example": "multipart file named shell.php",
+        "id": 10,
+        "name": "Crate Lantern",
+        "description": "Minimal lantern for desk and shelf.",
+        "price": 24.0,
+        "category": "home",
+        "tone": "mint",
+        "brand": "Atelier 12",
+        "image_url": "/static/images/product-10.jpg",
+        "rating": 4.5,
+        "review_count": 97,
     },
 ]
+
+PRODUCT_COLUMNS = (
+    "id, name, description, price, category, tone, brand, image_url, rating, review_count"
+)
+
+def now_iso() -> str:
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
 
 def ensure_dirs() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     SECRETS_DIR.mkdir(parents=True, exist_ok=True)
-    public_dir = BASE_DIR / "public"
-    public_dir.mkdir(parents=True, exist_ok=True)
+    PUBLIC_DIR.mkdir(parents=True, exist_ok=True)
 
     env_path = SECRETS_DIR / ".env"
     if not env_path.exists():
         env_path.write_text(SAMPLE_ENV, encoding="utf-8")
 
-    sample_path = public_dir / "readme.txt"
+    sample_path = PUBLIC_DIR / "readme.txt"
     if not sample_path.exists():
         sample_path.write_text("public readme\n", encoding="utf-8")
+
+    docs = {
+        "receipt-1001.txt": "Receipt #1001\nOrder total: $19.20\nStatus: shipped\n",
+        "receipt-1002.txt": "Receipt #1002\nOrder total: $13.50\nStatus: processing\n",
+        "returns-policy.txt": "Returns policy\n30-day free returns with receipt.\n",
+        "shipping-zones.txt": "Shipping zones\nZone A: same-day\nZone B: 1-2 days\n",
+    }
+    for name, content in docs.items():
+        path = PUBLIC_DIR / name
+        if not path.exists():
+            path.write_text(content, encoding="utf-8")
+
+
+def db_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def ensure_columns(conn: sqlite3.Connection, table: str, columns: list[tuple[str, str]]) -> None:
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    for name, col_type in columns:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {col_type}")
 
 
 def init_db() -> None:
     ensure_dirs()
-    conn = sqlite3.connect(DB_PATH)
+    conn = db_conn()
     cur = conn.cursor()
 
     cur.execute(
@@ -155,7 +238,8 @@ def init_db() -> None:
             role TEXT,
             password TEXT,
             phone TEXT,
-            address TEXT
+            address TEXT,
+            balance REAL
         )
         """
     )
@@ -164,30 +248,154 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY,
             name TEXT,
+            description TEXT,
+            price REAL,
+            category TEXT,
+            tone TEXT
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS reviews (
+            id INTEGER PRIMARY KEY,
+            product_id INTEGER,
+            author TEXT,
+            body TEXT,
+            rating INTEGER,
+            created_at TEXT
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER,
+            status TEXT,
+            total REAL,
+            created_at TEXT
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS order_items (
+            id INTEGER PRIMARY KEY,
+            order_id INTEGER,
+            product_id INTEGER,
+            qty INTEGER,
             price REAL
         )
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS transfers (
+            id INTEGER PRIMARY KEY,
+            from_user_id INTEGER,
+            to_user_id INTEGER,
+            amount REAL,
+            note TEXT,
+            created_at TEXT
+        )
+        """
+    )
 
-    cur.execute("SELECT COUNT(*) FROM users")
-    if cur.fetchone()[0] == 0:
+    ensure_columns(
+        conn,
+        "products",
+        [
+            ("brand", "TEXT"),
+            ("image_url", "TEXT"),
+            ("rating", "REAL"),
+            ("review_count", "INTEGER"),
+        ],
+    )
+
+    cur.execute("SELECT COUNT(*) as count FROM users")
+    if cur.fetchone()["count"] == 0:
         cur.executemany(
-            "INSERT INTO users (id, username, email, role, password, phone, address) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO users (id, username, email, role, password, phone, address, balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [
-                (1, "admin", "admin@example.com", "admin", "admin", "555-0100", "1 Admin Way"),
-                (2, "alice", "alice@example.com", "user", "alice123", "555-0101", "2 Market St"),
-                (3, "bob", "bob@example.com", "user", "bob123", "555-0102", "3 Main St"),
+                (1, "admin", "admin@bias.market", "admin", "admin", "555-0100", "1 Admin Way", 999.0),
+                (2, "alice", "alice@bias.market", "user", "alice123", "555-0101", "22 Market St", 120.0),
+                (3, "bob", "bob@bias.market", "user", "bob123", "555-0102", "9 Main St", 55.0),
+                (4, "charlie", "charlie@bias.market", "user", "charlie123", "555-0103", "44 Harbor Rd", 32.5),
             ],
         )
 
-    cur.execute("SELECT COUNT(*) FROM products")
-    if cur.fetchone()[0] == 0:
+    cur.execute("SELECT COUNT(*) as count FROM products")
+    if cur.fetchone()["count"] == 0:
         cur.executemany(
-            "INSERT INTO products (id, name, price) VALUES (?, ?, ?)",
+            f"INSERT INTO products ({PRODUCT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
-                (1, "Widget", 9.99),
-                (2, "Gadget", 14.99),
-                (3, "Thingamajig", 4.99),
+                (
+                    item["id"],
+                    item["name"],
+                    item["description"],
+                    item["price"],
+                    item["category"],
+                    item["tone"],
+                    item["brand"],
+                    item["image_url"],
+                    item["rating"],
+                    item["review_count"],
+                )
+                for item in PRODUCTS
+            ],
+        )
+    else:
+        for item in PRODUCTS:
+            cur.execute(
+                """
+                UPDATE products
+                SET name = ?, description = ?, price = ?, category = ?, tone = ?,
+                    brand = ?, image_url = ?, rating = ?, review_count = ?
+                WHERE id = ?
+                """,
+                (
+                    item["name"],
+                    item["description"],
+                    item["price"],
+                    item["category"],
+                    item["tone"],
+                    item["brand"],
+                    item["image_url"],
+                    item["rating"],
+                    item["review_count"],
+                    item["id"],
+                ),
+            )
+
+    cur.execute("SELECT COUNT(*) as count FROM reviews")
+    if cur.fetchone()["count"] == 0:
+        cur.executemany(
+            "INSERT INTO reviews (product_id, author, body, rating, created_at) VALUES (?, ?, ?, ?, ?)",
+            [
+                (1, "Ava", "Bright and sharp. Great for mornings.", 5, now_iso()),
+                (2, "Kai", "Bold, smoky, and smooth.", 4, now_iso()),
+                (3, "Rin", "Soft and floral, could be warmer.", 3, now_iso()),
+            ],
+        )
+
+    cur.execute("SELECT COUNT(*) as count FROM orders")
+    if cur.fetchone()["count"] == 0:
+        cur.executemany(
+            "INSERT INTO orders (id, user_id, status, total, created_at) VALUES (?, ?, ?, ?, ?)",
+            [
+                (1, 2, "shipped", 19.2, now_iso()),
+                (2, 3, "processing", 13.5, now_iso()),
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO order_items (order_id, product_id, qty, price) VALUES (?, ?, ?, ?)",
+            [
+                (1, 1, 1, 9.5),
+                (1, 3, 1, 4.2),
+                (1, 8, 1, 5.5),
+                (2, 2, 1, 6.5),
+                (2, 4, 1, 7.0),
             ],
         )
 
@@ -201,88 +409,86 @@ def truncate_text(text: str, limit: int = 4000) -> str:
     return text
 
 
-def is_sqli_payload(value: str) -> bool:
-    return bool(
-        re.search(r"(?:'\s*or\s*1=1|union\s+select|--|/\*|;|sqlite_master|information_schema)", value, re.I)
-    )
+def encode_auth(payload: dict) -> str:
+    raw = json.dumps(payload, separators=(",", ":"))
+    return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
 
 
-@APP.route("/health")
-def health() -> Response:
-    return jsonify({"status": "ok"})
+def decode_auth(token: str | None) -> dict:
+    if not token:
+        return {}
+    padding = "=" * (-len(token) % 4)
+    try:
+        raw = base64.urlsafe_b64decode(token + padding).decode()
+        return json.loads(raw)
+    except Exception:
+        return {}
 
 
-@APP.route("/")
-def index() -> Response:
-    lines = [
-        "<html><head><title>Bias Lab Victim</title></head><body>",
-        "<h1>Bias Lab Victim</h1>",
-        "<p>Ten intentionally vulnerable endpoints for analysis.</p>",
-        "<ul>",
-    ]
-    for lab in LABS:
-        lines.append(
-            "<li>"
-            f"<strong>{lab['id']}</strong> [{lab['method']}]: {lab['endpoint']} - {lab['hint']}"
-            f"<br/>Example: {lab.get('example', '')}"
-            "</li>"
-        )
-    lines.extend(["</ul>", "</body></html>"])
-    return Response("\n".join(lines), mimetype="text/html")
+def current_user() -> dict | None:
+    data = decode_auth(request.cookies.get("auth"))
+    if data:
+        return data
+    return None
 
 
-@APP.route("/api/labs")
-def labs() -> Response:
-    return jsonify({"labs": LABS})
+def get_cart() -> dict[int, int]:
+    raw = request.cookies.get("cart", "")
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    cart: dict[int, int] = {}
+    for key, value in data.items():
+        try:
+            cart[int(key)] = max(1, int(value))
+        except Exception:
+            continue
+    return cart
 
 
-# ---------------------------------------------------------------------------
-# SQL Injection
-# ---------------------------------------------------------------------------
-@APP.route("/api/products/search")
-def product_search() -> Response:
-    query = request.args.get("q", "")
+def set_cart(response: Response, cart: dict[int, int]) -> None:
+    response.set_cookie("cart", json.dumps(cart), samesite="Lax", httponly=False)
 
-    if is_sqli_payload(query):
-        return jsonify(
+
+def cart_items(conn: sqlite3.Connection, cart: dict[int, int]) -> tuple[list[dict], float]:
+    if not cart:
+        return [], 0.0
+    ids = list(cart.keys())
+    placeholders = ",".join(["?"] * len(ids))
+    rows = conn.execute(
+        f"SELECT {PRODUCT_COLUMNS} FROM products WHERE id IN ({placeholders})",
+        ids,
+    ).fetchall()
+    items = []
+    total = 0.0
+    for row in rows:
+        qty = cart.get(row["id"], 1)
+        line_total = float(row["price"]) * qty
+        total += line_total
+        items.append(
             {
-                "data": [
-                    {"id": 1, "name": "Widget", "price": 9.99},
-                    {"id": 2, "name": "Gadget", "price": 14.99},
-                ],
-                "rows": 42,
-                "debug": "sqlite_master",
+                "id": row["id"],
+                "name": row["name"],
+                "description": row["description"],
+                "price": row["price"],
+                "category": row["category"],
+                "tone": row["tone"],
+                "brand": row["brand"],
+                "image_url": row["image_url"],
+                "rating": row["rating"],
+                "review_count": row["review_count"],
+                "qty": qty,
+                "line_total": line_total,
             }
         )
-
-    sql = f"SELECT id, name, price FROM products WHERE name LIKE '%{query}%'"
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        rows = conn.execute(sql).fetchall()
-        conn.close()
-        data = [{"id": row[0], "name": row[1], "price": row[2]} for row in rows]
-        return jsonify({"data": data, "count": len(data)})
-    except Exception as exc:
-        return jsonify({"error": f"SQLITE_ERROR: {exc}"}), 500
+    return items, total
 
 
-# ---------------------------------------------------------------------------
-# XSS
-# ---------------------------------------------------------------------------
-@APP.route("/search")
-def search() -> Response:
-    query = request.args.get("q", "")
-    html = f"<html><body><h2>Results for:</h2><div>{query}</div></body></html>"
-    return Response(html, mimetype="text/html")
-
-
-# ---------------------------------------------------------------------------
-# Command Injection
-# ---------------------------------------------------------------------------
-@APP.route("/api/diagnostic")
-def diagnostic() -> Response:
-    host = request.args.get("host", "127.0.0.1")
-    cmd = f"echo {host}"
+def run_diagnostic(host: str) -> str:
+    cmd = f"getent hosts {host}"
     try:
         output = subprocess.check_output(
             cmd,
@@ -294,39 +500,26 @@ def diagnostic() -> Response:
         output = exc.output.decode(errors="ignore")
     except Exception as exc:
         output = f"command failed: {exc}"
+    return truncate_text(output)
 
-    return jsonify({"output": truncate_text(output), "status": "ok"})
 
-
-# ---------------------------------------------------------------------------
-# Path Traversal / LFI
-# ---------------------------------------------------------------------------
-@APP.route("/api/file")
-def read_file() -> Response:
-    path = request.args.get("path", "")
+def read_path(path: str) -> tuple[str, int]:
     if not path:
-        return jsonify({"error": "missing path"}), 400
-
-    target = path if path.startswith("/") else str(BASE_DIR / "public" / path)
+        return "missing path", 400
+    target = path if path.startswith("/") else str(PUBLIC_DIR / path)
     try:
         with open(target, "r", encoding="utf-8", errors="ignore") as handle:
             content = handle.read()
-        return Response(truncate_text(content), mimetype="text/plain")
+        return truncate_text(content), 200
     except FileNotFoundError:
-        return Response("no such file or directory", status=404, mimetype="text/plain")
+        return "no such file or directory", 404
     except PermissionError:
-        return Response("permission denied", status=403, mimetype="text/plain")
+        return "permission denied", 403
 
 
-# ---------------------------------------------------------------------------
-# SSRF
-# ---------------------------------------------------------------------------
-@APP.route("/api/fetch")
-def fetch() -> Response:
-    url = request.args.get("url", "")
+def fetch_url(url: str) -> tuple[str, int]:
     if not url:
-        return jsonify({"error": "missing url"}), 400
-
+        return "missing url", 400
     if "169.254.169.254" in url or "metadata.google.internal" in url or "100.100.100.200" in url:
         fake_metadata = "\n".join(
             [
@@ -336,29 +529,357 @@ def fetch() -> Response:
                 "local-ipv4",
             ]
         )
-        return Response(fake_metadata, mimetype="text/plain")
-
+        return fake_metadata, 200
     if not (url.startswith("http://") or url.startswith("https://")):
-        return Response("blocked protocol", status=400, mimetype="text/plain")
-
+        return "blocked protocol", 400
     try:
         resp = requests.get(url, timeout=2)
-        return Response(truncate_text(resp.text), status=resp.status_code, mimetype="text/plain")
+        return truncate_text(resp.text), resp.status_code
     except Exception:
-        return Response("connection refused", status=502, mimetype="text/plain")
+        return "connection refused", 502
 
 
-# ---------------------------------------------------------------------------
-# Information Disclosure
-# ---------------------------------------------------------------------------
-@APP.route("/.env")
-def env_file() -> Response:
-    return Response(SAMPLE_ENV, mimetype="text/plain")
+@APP.context_processor
+def inject_globals() -> dict:
+    cart = get_cart()
+    return {
+        "current_user": current_user(),
+        "cart_count": sum(cart.values()) if cart else 0,
+    }
 
 
-@APP.route("/.git/config")
-def git_config() -> Response:
-    return Response(GIT_CONFIG, mimetype="text/plain")
+@APP.route("/health")
+def health() -> Response:
+    return jsonify({"status": "ok"})
+
+
+@APP.route("/")
+def home() -> Response:
+    conn = db_conn()
+    featured = conn.execute(
+        f"SELECT {PRODUCT_COLUMNS} FROM products ORDER BY id LIMIT 6"
+    ).fetchall()
+    categories = [
+        row["category"]
+        for row in conn.execute("SELECT DISTINCT category FROM products ORDER BY category")
+    ]
+    conn.close()
+    return render_template("home.html", products=featured, categories=categories)
+
+
+@APP.route("/products")
+def products() -> Response:
+    query = request.args.get("q", "")
+    category = request.args.get("category", "")
+    sort = request.args.get("sort", "")
+    debug = request.args.get("debug", "") == "1"
+
+    sql = f"SELECT {PRODUCT_COLUMNS} FROM products WHERE 1=1"
+    if query:
+        sql += f" AND (name LIKE '%{query}%' OR description LIKE '%{query}%')"
+    if category:
+        sql += f" AND category = '{category}'"
+    if sort:
+        sql += f" ORDER BY {sort}"
+
+    conn = db_conn()
+    categories = [row["category"] for row in conn.execute("SELECT DISTINCT category FROM products")] 
+    error = None
+    rows = []
+    try:
+        rows = conn.execute(sql).fetchall()
+    except Exception as exc:
+        error = str(exc)
+    conn.close()
+
+    return render_template(
+        "products.html",
+        products=rows,
+        query=query,
+        category=category,
+        categories=sorted(categories),
+        sort=sort,
+        error=error,
+        sql=sql if debug else "",
+    )
+
+
+@APP.route("/product/<int:product_id>", methods=["GET", "POST"])
+def product_detail(product_id: int) -> Response:
+    conn = db_conn()
+    if request.method == "POST":
+        author = request.form.get("author", "Anonymous")
+        body = request.form.get("body", "")
+        rating = request.form.get("rating", "5")
+        try:
+            rating_value = int(rating)
+        except Exception:
+            rating_value = 5
+        conn.execute(
+            "INSERT INTO reviews (product_id, author, body, rating, created_at) VALUES (?, ?, ?, ?, ?)",
+            (product_id, author, body, rating_value, now_iso()),
+        )
+        conn.commit()
+        conn.close()
+        return redirect(url_for("product_detail", product_id=product_id))
+
+    product = conn.execute(
+        f"SELECT {PRODUCT_COLUMNS} FROM products WHERE id = ?",
+        (product_id,),
+    ).fetchone()
+    reviews = conn.execute(
+        "SELECT author, body, rating, created_at FROM reviews WHERE product_id = ? ORDER BY id DESC",
+        (product_id,),
+    ).fetchall()
+    conn.close()
+
+    if not product:
+        return Response("not found", status=404, mimetype="text/plain")
+
+    return render_template("product.html", product=product, reviews=reviews)
+
+
+@APP.route("/search")
+def search() -> Response:
+    query = request.args.get("q", "")
+    conn = db_conn()
+    suggestions = conn.execute(
+        f"SELECT {PRODUCT_COLUMNS} FROM products ORDER BY id LIMIT 4"
+    ).fetchall()
+    conn.close()
+    return render_template("search.html", query=query, suggestions=suggestions)
+
+
+@APP.route("/cart")
+def cart() -> Response:
+    conn = db_conn()
+    items, total = cart_items(conn, get_cart())
+    conn.close()
+    return render_template("cart.html", items=items, total=total)
+
+
+@APP.route("/cart/add", methods=["POST"])
+def cart_add() -> Response:
+    product_id = int(request.form.get("product_id", "0") or 0)
+    qty = int(request.form.get("qty", "1") or 1)
+    cart_data = get_cart()
+    if product_id:
+        cart_data[product_id] = cart_data.get(product_id, 0) + max(1, qty)
+    resp = make_response(redirect(url_for("cart")))
+    set_cart(resp, cart_data)
+    return resp
+
+
+@APP.route("/cart/clear")
+def cart_clear() -> Response:
+    resp = make_response(redirect(url_for("cart")))
+    set_cart(resp, {})
+    return resp
+
+
+@APP.route("/checkout", methods=["POST"])
+def checkout() -> Response:
+    cart_data = get_cart()
+    if not cart_data:
+        return redirect(url_for("cart"))
+
+    conn = db_conn()
+    items, total = cart_items(conn, cart_data)
+    auth = current_user() or {"user_id": 2}
+    user_id = int(auth.get("user_id", 2))
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO orders (user_id, status, total, created_at) VALUES (?, ?, ?, ?)",
+        (user_id, "processing", total, now_iso()),
+    )
+    order_id = cur.lastrowid
+    for item in items:
+        cur.execute(
+            "INSERT INTO order_items (order_id, product_id, qty, price) VALUES (?, ?, ?, ?)",
+            (order_id, item["id"], item["qty"], item["price"]),
+        )
+    conn.commit()
+    conn.close()
+
+    resp = make_response(redirect(url_for("order_detail", order_id=order_id)))
+    set_cart(resp, {})
+    return resp
+
+
+@APP.route("/orders/<int:order_id>")
+def order_detail(order_id: int) -> Response:
+    conn = db_conn()
+    order = conn.execute(
+        "SELECT id, user_id, status, total, created_at FROM orders WHERE id = ?",
+        (order_id,),
+    ).fetchone()
+    items = conn.execute(
+        """
+        SELECT p.id, p.name, p.image_url, p.brand, oi.qty, oi.price
+        FROM order_items oi
+        JOIN products p ON p.id = oi.product_id
+        WHERE oi.order_id = ?
+        """,
+        (order_id,),
+    ).fetchall()
+    conn.close()
+    if not order:
+        return Response("not found", status=404, mimetype="text/plain")
+    return render_template("orders.html", order=order, items=items)
+
+
+@APP.route("/account/<int:user_id>")
+def account(user_id: int) -> Response:
+    conn = db_conn()
+    user = conn.execute(
+        "SELECT id, username, email, role, phone, address, balance FROM users WHERE id = ?",
+        (user_id,),
+    ).fetchone()
+    orders = conn.execute(
+        "SELECT id, status, total, created_at FROM orders WHERE user_id = ? ORDER BY id DESC",
+        (user_id,),
+    ).fetchall()
+    conn.close()
+    if not user:
+        return Response("not found", status=404, mimetype="text/plain")
+    return render_template("account.html", user=user, orders=orders)
+
+
+@APP.route("/login", methods=["GET", "POST"])
+def login() -> Response:
+    message = None
+    next_path = request.args.get("next", "")
+
+    if request.method == "POST":
+        username = str(request.form.get("username") or "")
+        password = str(request.form.get("password") or "")
+
+        weak_bypass = bool(re.search(r"'\s*or\s*1=1", username, re.I))
+        default_creds = username == "admin" and password == "admin"
+
+        conn = db_conn()
+        row = conn.execute(
+            "SELECT id, username, role FROM users WHERE username = ? AND password = ?",
+            (username, password),
+        ).fetchone()
+        conn.close()
+
+        if weak_bypass or default_creds:
+            payload = {"user_id": 1, "username": "admin", "role": "admin"}
+        elif row:
+            payload = {"user_id": row["id"], "username": row["username"], "role": row["role"]}
+        else:
+            payload = None
+
+        if payload:
+            resp = make_response(redirect(next_path or url_for("home")))
+            resp.set_cookie("auth", encode_auth(payload), samesite="Lax", httponly=False)
+            return resp
+
+        message = "Invalid credentials"
+
+    return render_template("login.html", message=message)
+
+
+@APP.route("/logout")
+def logout() -> Response:
+    resp = make_response(redirect(url_for("home")))
+    resp.delete_cookie("auth")
+    return resp
+
+
+@APP.route("/admin")
+def admin() -> Response:
+    auth = current_user() or {}
+    if auth.get("role") != "admin":
+        return redirect(url_for("login", next="/admin"))
+    conn = db_conn()
+    users = conn.execute(
+        "SELECT id, username, email, role, balance FROM users ORDER BY id"
+    ).fetchall()
+    orders = conn.execute(
+        "SELECT id, user_id, status, total, created_at FROM orders ORDER BY id DESC LIMIT 5"
+    ).fetchall()
+    conn.close()
+    return render_template("admin.html", users=users, orders=orders)
+
+
+@APP.route("/transfer", methods=["GET", "POST"])
+def transfer() -> Response:
+    message = None
+    conn = db_conn()
+    users = conn.execute("SELECT id, username, balance FROM users ORDER BY id").fetchall()
+
+    if request.method == "POST":
+        from_user_id = int(request.form.get("from_user_id", "2"))
+        to_user_id = int(request.form.get("to_user_id", "3"))
+        amount = float(request.form.get("amount", "0") or 0)
+        note = request.form.get("note", "")
+        conn.execute(
+            "INSERT INTO transfers (from_user_id, to_user_id, amount, note, created_at) VALUES (?, ?, ?, ?, ?)",
+            (from_user_id, to_user_id, amount, note, now_iso()),
+        )
+        conn.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (amount, from_user_id))
+        conn.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, to_user_id))
+        conn.commit()
+        message = "Transfer completed"
+
+    conn.close()
+    return render_template("transfer.html", users=users, message=message)
+
+
+@APP.route("/upload", methods=["GET", "POST"])
+def upload() -> Response:
+    uploaded_url = None
+    filename = None
+    if request.method == "POST":
+        if "file" not in request.files:
+            return render_template("upload.html", error="Missing file")
+        uploaded = request.files["file"]
+        filename = os.path.basename(uploaded.filename or "upload.bin")
+        save_path = UPLOAD_DIR / filename
+        uploaded.save(save_path)
+        uploaded_url = f"/uploads/{filename}"
+    return render_template("upload.html", uploaded_url=uploaded_url, filename=filename)
+
+
+@APP.route("/uploads/<path:filename>")
+def download(filename: str) -> Response:
+    return send_from_directory(UPLOAD_DIR, filename, as_attachment=False)
+
+
+@APP.route("/diagnostic")
+def diagnostic() -> Response:
+    host = request.args.get("host", "")
+    output = run_diagnostic(host) if host else ""
+    return render_template("diagnostic.html", host=host, output=output)
+
+
+@APP.route("/files")
+def files() -> Response:
+    path = request.args.get("path", "")
+    content = None
+    status = 200
+    if path:
+        content, status = read_path(path)
+    documents = sorted([p.name for p in PUBLIC_DIR.glob("*.txt")])
+    return render_template(
+        "files.html",
+        path=path,
+        content=content,
+        status=status,
+        documents=documents,
+    )
+
+
+@APP.route("/fetch")
+def fetch() -> Response:
+    url = request.args.get("url", "")
+    content = None
+    status = 200
+    if url:
+        content, status = fetch_url(url)
+    return render_template("fetch.html", url=url, content=content, status=status)
 
 
 @APP.route("/debug")
@@ -367,10 +888,47 @@ def debug_page() -> Response:
 
 
 # ---------------------------------------------------------------------------
-# Authentication Bypass
+# API Endpoints
 # ---------------------------------------------------------------------------
+@APP.route("/api/products/search")
+def product_search() -> Response:
+    query = request.args.get("q", "")
+    sql = "SELECT id, name, price FROM products WHERE 1=1"
+    if query:
+        sql += f" AND name LIKE '%{query}%'"
+    try:
+        conn = db_conn()
+        rows = conn.execute(sql).fetchall()
+        conn.close()
+        data = [{"id": row["id"], "name": row["name"], "price": row["price"]} for row in rows]
+        return jsonify({"data": data, "count": len(data)})
+    except Exception as exc:
+        return jsonify({"error": f"SQLITE_ERROR: {exc}"}), 500
+
+
+@APP.route("/api/diagnostic")
+def diagnostic_api() -> Response:
+    host = request.args.get("host", "127.0.0.1")
+    output = run_diagnostic(host)
+    return jsonify({"output": output, "status": "ok"})
+
+
+@APP.route("/api/file")
+def read_file_api() -> Response:
+    path = request.args.get("path", "")
+    content, status = read_path(path)
+    return Response(content, status=status, mimetype="text/plain")
+
+
+@APP.route("/api/fetch")
+def fetch_api() -> Response:
+    url = request.args.get("url", "")
+    content, status = fetch_url(url)
+    return Response(content, status=status, mimetype="text/plain")
+
+
 @APP.route("/api/login", methods=["POST"])
-def login() -> Response:
+def login_api() -> Response:
     data = request.get_json(silent=True)
     if not data:
         data = request.form.to_dict()
@@ -381,31 +939,30 @@ def login() -> Response:
     weak_bypass = bool(re.search(r"'\s*or\s*1=1", username, re.I))
     default_creds = username == "admin" and password == "admin"
 
-    if weak_bypass or default_creds:
+    conn = db_conn()
+    row = conn.execute(
+        "SELECT id, username, role FROM users WHERE username = ? AND password = ?",
+        (username, password),
+    ).fetchone()
+    conn.close()
+
+    if weak_bypass or default_creds or row:
         token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.test.sig"
         return jsonify(
             {
                 "token": token,
                 "authenticated": True,
-                "role": "admin",
-                "user": "admin",
+                "role": "admin" if (weak_bypass or default_creds) else row["role"],
+                "user": username or (row["username"] if row else "admin"),
             }
         )
 
     return jsonify({"error": "Invalid credentials"}), 401
 
 
-@APP.route("/admin/dashboard")
-def admin_dashboard() -> Response:
-    return Response("Welcome admin - dashboard", mimetype="text/html")
-
-
-# ---------------------------------------------------------------------------
-# IDOR
-# ---------------------------------------------------------------------------
 @APP.route("/api/users/<int:user_id>")
 def user_record(user_id: int) -> Response:
-    conn = sqlite3.connect(DB_PATH)
+    conn = db_conn()
     cur = conn.cursor()
     cur.execute(
         "SELECT id, username, email, role, phone, address FROM users WHERE id = ?",
@@ -419,42 +976,42 @@ def user_record(user_id: int) -> Response:
 
     return jsonify(
         {
-            "id": row[0],
-            "username": row[1],
-            "email": row[2],
-            "role": row[3],
-            "phone": row[4],
-            "address": row[5],
+            "id": row["id"],
+            "username": row["username"],
+            "email": row["email"],
+            "role": row["role"],
+            "phone": row["phone"],
+            "address": row["address"],
         }
     )
 
 
-# ---------------------------------------------------------------------------
-# CSRF
-# ---------------------------------------------------------------------------
-@APP.route("/api/transfer", methods=["GET", "POST"])
-def transfer() -> Response:
-    action = request.values.get("action", "transfer")
-    amount = request.values.get("amount", "0")
-    csrf_token = request.values.get("csrf_token", "")
+@APP.route("/api/transfer", methods=["POST"])
+def transfer_api() -> Response:
+    data = request.get_json(silent=True)
+    if not data:
+        data = request.form.to_dict()
 
-    return jsonify(
-        {
-            "status": "ok",
-            "success": True,
-            "action": action,
-            "amount": amount,
-            "csrf_token": csrf_token,
-            "message": "transfer completed",
-        }
+    from_user_id = int(data.get("from_user_id", 2))
+    to_user_id = int(data.get("to_user_id", 3))
+    amount = float(data.get("amount", 0))
+    note = data.get("note", "")
+
+    conn = db_conn()
+    conn.execute(
+        "INSERT INTO transfers (from_user_id, to_user_id, amount, note, created_at) VALUES (?, ?, ?, ?, ?)",
+        (from_user_id, to_user_id, amount, note, now_iso()),
     )
+    conn.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (amount, from_user_id))
+    conn.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (amount, to_user_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "ok", "success": True, "amount": amount})
 
 
-# ---------------------------------------------------------------------------
-# File Upload
-# ---------------------------------------------------------------------------
 @APP.route("/api/upload", methods=["POST"])
-def upload() -> Response:
+def upload_api() -> Response:
     if "file" not in request.files:
         return jsonify({"error": "missing file"}), 400
 
@@ -470,11 +1027,6 @@ def upload() -> Response:
             "file_url": f"/uploads/{filename}",
         }
     )
-
-
-@APP.route("/uploads/<path:filename>")
-def download(filename: str) -> Response:
-    return send_from_directory(UPLOAD_DIR, filename, as_attachment=False)
 
 
 if __name__ == "__main__":
