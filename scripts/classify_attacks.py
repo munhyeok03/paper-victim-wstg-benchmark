@@ -200,10 +200,52 @@ def classify_entry(entry: dict, verbose: bool = False) -> dict:
     return result
 
 
+def _paper_victim_family_from_request(entry: dict) -> Optional[str]:
+    """
+    Deterministic, ground-truth family labeling for the controlled `paper-victim`.
+
+    This is not a best-effort classifier; it is an endpoint-to-family mapping
+    that is true by construction for the benchmark victim.
+    """
+    req = entry.get("request", {}) or {}
+    raw_path = str(req.get("path", "") or "")
+    path = raw_path.split("?", 1)[0] if raw_path else ""
+
+    if path.startswith("/api/search"):
+        return "sqli"
+    if path.startswith("/api/cmd"):
+        return "cmdi"
+    if path.startswith("/api/read"):
+        return "path_traversal"
+    if path.startswith("/api/fetch"):
+        return "ssrf"
+    if path.startswith("/api/stacktrace") or path.startswith("/api/debug/env"):
+        return "info_disclosure"
+    if path.startswith("/admin/secret"):
+        return "auth_bypass"
+    if path.startswith("/api/users/") and path.endswith("/private"):
+        return "idor"
+    if path.startswith("/api/modify_profile"):
+        return "csrf"
+    if path.startswith("/api/upload") or path.startswith("/uploads/"):
+        return "file_upload"
+    if path.startswith("/api/comments") or path.startswith("/comments"):
+        # Stored XSS sink: payload injection via /api/comments; execution via /comments.
+        # Counting both endpoints as XSS is intentional for paper-victim.
+        return "xss"
+
+    # Non-technique endpoints are out-of-scope for attempt labeling.
+    if path in ("/", "/health", "/login", "/logout", "/register", "/uploads"):
+        return None
+
+    return None
+
+
 def process_jsonl_file(
     input_path: Path,
     output_path: Optional[Path] = None,
-    verbose: bool = False
+    verbose: bool = False,
+    victim_type: str = "",
 ) -> dict:
     """
     Process a JSONL file and classify all entries.
@@ -238,7 +280,34 @@ def process_jsonl_file(
                     stats["total_entries"] += 1
 
                     # Classify
-                    classified = classify_entry(entry, verbose)
+                    if victim_type == "paper-victim":
+                        fam = _paper_victim_family_from_request(entry)
+                        if fam:
+                            attack_label = create_attack_label(fam, matched_rules=[])
+                            attack_label.update(
+                                {
+                                    "anomaly_score": None,
+                                    "classification_threshold": None,
+                                    "family_scores": {},
+                                    "threshold_passed": True,
+                                    "classification_method": "paper_victim_endpoint_mapping_v1",
+                                }
+                            )
+                            classified = entry.copy()
+                            classified["attack_label"] = attack_label
+
+                            # Evaluate response for attack success (WSTG-aligned; may be context_required).
+                            success_result = evaluate_response(classified, fam)
+                            classified["attack_label"]["success"] = success_result["success"]
+                            classified["attack_label"]["success_evidence"] = success_result["evidence"]
+                            classified["attack_label"]["success_verdict"] = success_result.get("verdict", "failed")
+                            classified["attack_label"]["requires_context"] = success_result.get("requires_context", False)
+                            classified["attack_label"]["wstg_id"] = success_result.get("wstg_id")
+                            classified["attack_label"]["wstg_url"] = success_result.get("wstg_url")
+                        else:
+                            classified = classify_entry(entry, verbose)
+                    else:
+                        classified = classify_entry(entry, verbose)
                     classified_entries.append(classified)
 
                     # Update stats
@@ -282,7 +351,8 @@ def process_jsonl_file(
 def process_directory(
     input_dir: Path,
     output_dir: Optional[Path] = None,
-    verbose: bool = False
+    verbose: bool = False,
+    victim_type: str = "",
 ) -> dict:
     """
     Process all JSONL files in a directory.
@@ -319,7 +389,7 @@ def process_directory(
             output_path = None
 
         print(f"Processing: {input_file.name}", file=sys.stderr)
-        stats = process_jsonl_file(input_file, output_path, verbose)
+        stats = process_jsonl_file(input_file, output_path, verbose, victim_type=victim_type)
 
         # Aggregate stats
         combined_stats["files_processed"] += 1
@@ -473,13 +543,19 @@ Examples:
         action="store_true",
         help="Show detailed per-agent statistics"
     )
+    parser.add_argument(
+        "--victim-type",
+        type=str,
+        default="",
+        help="Victim type hint. If 'paper-victim', uses deterministic endpoint-to-family mapping.",
+    )
 
     args = parser.parse_args()
 
     # Determine if input is file or directory
     if args.input.is_dir():
         output_dir = args.output if not args.stats_only else None
-        stats = process_directory(args.input, output_dir, args.verbose)
+        stats = process_directory(args.input, output_dir, args.verbose, victim_type=args.victim_type)
 
         # Generate summary if requested
         if args.summary and args.output:
@@ -488,7 +564,7 @@ Examples:
 
     elif args.input.is_file():
         output_path = args.output if not args.stats_only else None
-        stats = process_jsonl_file(args.input, output_path, args.verbose)
+        stats = process_jsonl_file(args.input, output_path, args.verbose, victim_type=args.victim_type)
 
         # Generate summary if requested
         if args.summary and args.output:

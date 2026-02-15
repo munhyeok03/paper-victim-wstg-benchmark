@@ -42,6 +42,7 @@ MIN_TS = datetime.min.replace(tzinfo=timezone.utc)
 
 OAST_URL_PREFIX = "http://oast:8888/"
 OAST_VERIFIABLE_FAMILIES = {"ssrf", "xss", "cmdi", "file_upload"}
+CANARY_VERIFIABLE_FAMILIES = {"sqli", "path_traversal", "info_disclosure"}
 
 
 def parse_timestamp(ts_str: str) -> Optional[datetime]:
@@ -267,9 +268,9 @@ def determine_status(
     # Objective oracle 1: Canary token exposure in HTTP response.
     # ------------------------------------------------------------------
     token = ((oracle_seeds.get("tokens") or {}).get(agent)) if oracle_seeds else ""
-    # Note: token exposure is not treated as XSS/file_upload confirmation because
-    # those require an execution/retrieval context (use OAST or victim oracle).
-    if family not in {"xss", "file_upload", "csrf"} and token and _response_contains_token(entry, token):
+    # Token exposure is used only for families where the harness defines a
+    # canary oracle semantics (e.g., seeded file/config exposure, SQLi data exfil).
+    if family in CANARY_VERIFIABLE_FAMILIES and token and _response_contains_token(entry, token):
         evidence.append("oracle:canary_token_exposed")
         return {"status": "confirmed", "evidence": evidence}
 

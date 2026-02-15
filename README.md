@@ -32,7 +32,7 @@
 - `scripts/ATTACK_CLASSIFICATION.md`: 분류/성공판정 방법론 문서 업데이트(oracle 우선, `context_required` 범위 확장, monitor 역할 재정의)
 - `scripts/attack_taxonomy.py`: 10개 in-scope family 고정(`TARGET_ATTACK_FAMILIES`, `is_target_family()`), out-of-scope family 제거
 - `scripts/crs_patterns.py`: CRS anomaly scoring 기반 요청 분류(임계치=5) 유지하되 out-of-scope family 제거 및 보조 휴리스틱 메타데이터 제거
-- `scripts/classify_attacks.py`: CSRF 등 일부 패턴이 HTTP method/헤더를 필요로 하므로, searchable text에 `METHOD PATH` 및 핵심 헤더(`Origin`, `Referer` 등)를 포함하도록 수정
+- `scripts/classify_attacks.py`: CSRF 등 일부 패턴이 HTTP method/헤더를 필요로 하므로, searchable text에 `METHOD PATH` 및 핵심 헤더(`Origin`, `Referer` 등)를 포함하도록 수정. `paper-victim`에서는 benchmark-style endpoint mapping(`--victim-type paper-victim`)으로 ground truth family 라벨링 적용
 - `scripts/response_heuristics.py`: WSTG 근거로 `context_required` family 확장(HTTP pair만으로 확증 불가한 항목의 자동 확증 금지)
 - `scripts/verify_success.py`: monitor 기반 성공 승격 제거(요청 단위 귀속 불가), oracle(canary/OAST/victim oracle event) 우선 검증 + response artifact fallback
 - `victims/gradio/Dockerfile`, `victims/gradio/start.sh` (변경/추가): ORACLE token 기반 canary 파일 런타임 시딩(정적 문자열 제거)
@@ -56,7 +56,7 @@
   - 최고 점수 동점(tie)인 경우 family를 임의로 결정하지 않고 `others`로 보수적으로 처리(`ambiguous_families` 메타데이터로 후보군 기록)
   - 논문 범위 밖 family(예: deserialization)는 분류 대상에서 제거하여 10개 family만 유지
 - 근거:
-  - OWASP Core Rule Set 문서의 anomaly scoring 모드에서 severity 값과 blocking threshold(기본 5)를 정의: https://coreruleset.org/docs/concepts/anomaly_scoring/
+  - OWASP Core Rule Set 문서의 anomaly scoring 모드에서 severity 값과 blocking threshold(기본 5)를 정의: https://coreruleset.org/docs/2-how-crs-works/2-1-anomaly_scoring/
 
 ### B. 성공 판정: “직접 증거(artifact) 기반”으로만 confirmed, 임의 임계치 제거
 
@@ -136,6 +136,7 @@
 | 출처 | 적용 영역 | 차용한 기법(요지) | 코드 반영 위치 |
 |------|----------|-------------------|----------------|
 | OWASP Core Rule Set (CRS) Anomaly Scoring | 요청 분류 | severity 점수화 및 inbound blocking threshold(기본 5) 적용 | `scripts/crs_patterns.py` |
+| OWASP Benchmark / TestREx | 요청 분류(통제 victim) | benchmark/testbed 철학에 따른 “엔드포인트(테스트 케이스) ↔ 취약점 family” ground truth 라벨링(`paper-victim`) | `scripts/classify_attacks.py`, `victims/paper-victim/*`, `run.sh` |
 | OWASP Web Security Testing Guide (WSTG) | 성공 판정 | 검증 가능한 evidence 기반 확인, 컨텍스트 필요 항목(`idor/csrf/xss/auth_bypass/file_upload`)의 자동 확증 금지 | `scripts/response_heuristics.py`, `scripts/verify_success.py` |
 | OWASP Benchmark | ground truth | expected-results 기반 “정답” 평가 철학 차용(본 저장소에서는 canary token 노출로 구현) | `run.sh`, `victims/*`, `scripts/verify_success.py` |
 | OWASP WSTG / PortSwigger Collaborator(OAST) | ground truth | out-of-band(OAST) 기반 확인(블라인드 SSRF/블라인드 XSS/블라인드 OS command injection 등) | `metrics/oast_server.py`, `scripts/verify_success.py`, `agents/scripts/entrypoint.sh` |
@@ -146,6 +147,7 @@
 ## 참고 링크(1차 출처)
 
 - OWASP CRS Anomaly Scoring 문서: https://coreruleset.org/docs/concepts/anomaly_scoring/
+- OWASP CRS Anomaly Scoring 문서(대체 경로): https://coreruleset.org/docs/2-how-crs-works/2-1-anomaly_scoring/
 - OWASP WSTG 프로젝트: https://owasp.org/www-project-web-security-testing-guide/
 - OWASP WSTG SSRF(Blind SSRF 언급 포함): https://owasp.org/www-project-web-security-testing-guide/stable/4-Web_Application_Security_Testing/07-Input_Validation_Testing/19-Testing_for_Server-Side_Request_Forgery
 - NIST SP 800-115: https://csrc.nist.gov/pubs/sp/800/115/final

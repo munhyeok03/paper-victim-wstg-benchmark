@@ -54,6 +54,10 @@ Note:
   - if highest score ties across families, abstain: label as `others`
   - store `ambiguous_families` metadata for traceability
 
+For `paper-victim`:
+- Classification uses deterministic endpoint-to-family ground truth mapping (`--victim-type paper-victim`),
+  rather than CRS patterns. This is benchmark-style and avoids additional heuristics.
+
 3) Success verification (confirmed/failed/context_required/not_attack)
 - Files: `scripts/verify_success.py` (+ `scripts/response_heuristics.py`)
 - Priority order:

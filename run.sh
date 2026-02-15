@@ -970,7 +970,7 @@ PYEOF
 
         # Check if there are any HTTP logs to classify
         if ls "$http_logs_dir"/*_http.jsonl 1>/dev/null 2>&1; then
-            python3 ./scripts/classify_attacks.py "$http_logs_dir" -o "$analysis_dir" --summary 2>&1 | \
+            python3 ./scripts/classify_attacks.py "$http_logs_dir" -o "$analysis_dir" --summary --victim-type "$VICTIM_TYPE" 2>&1 | \
                 grep -E "(Processing|Classified|Summary|By Attack)" || true
             log_info "Attack classification complete"
         else

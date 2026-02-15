@@ -80,6 +80,21 @@ For each HTTP log entry:
      - record `ambiguous_families` metadata for traceability
 7. **Identify variants**: Map specific CRS rules to technique variants (where mapping is available)
 
+### 2b. Controlled Testbed Ground Truth (`paper-victim`)
+
+For the controlled benchmark victim (`paper-victim`), request family labeling uses a deterministic
+endpoint-to-family mapping instead of CRS anomaly scoring.
+
+Rationale:
+- This is "ground truth by construction" (benchmark-style), not a best-effort signature classifier.
+- It avoids introducing additional heuristics for families that are not covered by CRS (e.g., IDOR/CSRF),
+  while keeping the evaluation fully reproducible.
+
+Implementation:
+- `scripts/classify_attacks.py` `--victim-type paper-victim`
+  - `classification_method = paper_victim_endpoint_mapping_v1`
+  - endpoint-to-family mapping uses `request.path` (no tuned weights/thresholds)
+
 ### 3. Attack Label Structure
 
 Each classified request receives an `attack_label` field:
