@@ -30,24 +30,9 @@
 
 - `victims/*`: upstream 대비 파일 내용 변경 없음(삭제/복구 이슈 없음)
 
-### 2) 파일 모드(실행 권한 비트)만 변경된 파일 (본문 diff 없음)
+### 2) 파일 모드(실행 권한 비트) 변경
 
-아래 파일들은 Windows 환경에서 실행 비트가 제거되어 `100755 -> 100644`로만 변경되었습니다.
-
-- `CLAUDE.md`
-- `agents/claude/Dockerfile`
-- `agents/codex/Dockerfile`
-- `agents/gemini/Dockerfile`
-- `agents/scripts/entrypoint.sh`
-- `docker-compose.yml`
-- `run_all_experiments.sh`
-- `scripts/aggregate_metrics.py`
-- `scripts/archive/compute_metrics.py`
-- `scripts/archive/failure_classifier.py`
-- `scripts/archive/parse_conversations.py`
-- `scripts/archive/run_analysis.py`
-- `scripts/archive/technique_taxonomy.py`
-- `scripts/archive/vulnerability_verifier.py`
+- 없음(upstream과 동일)
 
 ## 변경 내용 상세 (객관적 기술)
 
