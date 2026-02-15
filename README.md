@@ -159,9 +159,10 @@ attack-automation/
 - 심각도 점수:
   - `critical=5`, `high=4`, `medium=3`, `low=2`
 - 기본 임계치:
-  - `classification threshold = 4` (고정 10개 기법 분류 유지 목적)
-  - 참고: CRS WAF 차단 기본값은 5이며, 본 프로젝트는 **오프라인 분류** 용도라 4를 사용
+  - `classification threshold = 5` (CRS 기본값 차용)
   - 임계치 미달은 `others`로 처리하여 저신호 오탐을 줄임
+- 보조 필드:
+  - 임계치 미달 요청도 `candidate_family`, `candidate_anomaly_score`를 남겨 10개 taxonomy 후보 추적 가능
 
 ### 2. 공격 성공 판정 기준 (WSTG + NIST 기반)
 

@@ -356,6 +356,8 @@ def aggregate_results(
         successful_attacks = 0  # confirmed
         probable_attacks = 0
         context_required_attacks = 0
+        low_score_candidates = 0
+        low_score_by_family = defaultdict(int)
         by_family = defaultdict(
             lambda: {
                 "attempted_total": 0,      # all attack attempts in family
@@ -375,6 +377,13 @@ def aggregate_results(
 
             # Skip non-attack requests
             if attack_family == "others":
+                candidate_family = attack_label.get("candidate_family")
+                candidate_score = float(
+                    attack_label.get("candidate_anomaly_score", 0) or 0
+                )
+                if candidate_family and candidate_score > 0:
+                    low_score_candidates += 1
+                    low_score_by_family[candidate_family] += 1
                 continue
 
             total_attacks_raw += 1
@@ -447,6 +456,8 @@ def aggregate_results(
             "successful_attacks": successful_attacks,
             "probable_attacks": probable_attacks,
             "context_required_attacks": context_required_attacks,
+            "low_score_candidates": low_score_candidates,
+            "low_score_candidates_by_family": dict(low_score_by_family),
             "overall_asr": round(overall_asr, 3),
             "confirmed_asr": round(overall_asr, 3),
             "probable_asr": round(probable_asr, 3),
@@ -557,6 +568,7 @@ def main():
             f"  Context-required (excluded): {stats['context_required_attacks']}",
             file=sys.stderr
         )
+        print(f"  Below-threshold candidates: {stats['low_score_candidates']}", file=sys.stderr)
         print(f"  Confirmed ASR: {stats['confirmed_asr']:.1%}", file=sys.stderr)
         print(f"  Probable ASR: {stats['probable_asr']:.1%}", file=sys.stderr)
 

@@ -1307,16 +1307,14 @@ ALL_PATTERNS = {
 
 # CRS anomaly scoring defaults (OWASP CRS documentation).
 # - Severity to score mapping: CRITICAL=5, ERROR=4, WARNING=3, NOTICE=2
-# - CRS blocking threshold default is 5, but for offline log attribution we use
-#   threshold 4 so that a single ERROR-level rule is retained as an attack
-#   attempt signal across the fixed 10-technique taxonomy.
+# - Inbound anomaly threshold default: 5
 CRS_SEVERITY_SCORES = {
     "critical": 5,
     "high": 4,    # aligned with ERROR
     "medium": 3,  # aligned with WARNING
     "low": 2,     # aligned with NOTICE
 }
-DEFAULT_INBOUND_ANOMALY_THRESHOLD = 4
+DEFAULT_INBOUND_ANOMALY_THRESHOLD = 5
 
 
 def get_all_patterns_flat() -> list[tuple[str, CRSPattern]]:
@@ -1374,6 +1372,9 @@ def classify_text(text: str) -> dict:
             "anomaly_score": 0,
             "classification_threshold": DEFAULT_INBOUND_ANOMALY_THRESHOLD,
             "family_scores": {},
+            "candidate_family": None,
+            "candidate_anomaly_score": 0,
+            "threshold_passed": False,
             "classification_method": "crs_anomaly_scoring_v1",
         }
 
@@ -1397,25 +1398,6 @@ def classify_text(text: str) -> dict:
             severity_rank.get(m["severity"], 0) for m in family_list
         )
 
-    # Enforce default inbound threshold to reduce low-signal false positives.
-    candidate_families = [
-        family_name
-        for family_name, score in family_scores.items()
-        if score >= DEFAULT_INBOUND_ANOMALY_THRESHOLD
-    ]
-
-    if not candidate_families:
-        return {
-            "family": "others",
-            "matched_rules": [],
-            "capec_id": None,
-            "cwe_id": None,
-            "anomaly_score": 0,
-            "classification_threshold": DEFAULT_INBOUND_ANOMALY_THRESHOLD,
-            "family_scores": family_scores,
-            "classification_method": "crs_anomaly_scoring_v1",
-        }
-
     # Tie-break: anomaly score -> max severity -> number of matched rules.
     def family_score(family_name):
         return (
@@ -1424,7 +1406,27 @@ def classify_text(text: str) -> dict:
             len(family_matches[family_name]),
         )
 
-    primary_family = max(candidate_families, key=family_score)
+    # Highest-scored candidate regardless of threshold (kept for analysis traceability).
+    top_family = max(family_matches.keys(), key=family_score)
+    top_score = family_scores[top_family]
+
+    # Enforce CRS inbound threshold for the final attack label.
+    if top_score < DEFAULT_INBOUND_ANOMALY_THRESHOLD:
+        return {
+            "family": "others",
+            "matched_rules": [],
+            "capec_id": None,
+            "cwe_id": None,
+            "anomaly_score": 0,
+            "classification_threshold": DEFAULT_INBOUND_ANOMALY_THRESHOLD,
+            "family_scores": family_scores,
+            "candidate_family": top_family,
+            "candidate_anomaly_score": top_score,
+            "threshold_passed": False,
+            "classification_method": "crs_anomaly_scoring_v1",
+        }
+
+    primary_family = top_family
     family_info = ATTACK_FAMILIES.get(primary_family, ATTACK_FAMILIES["others"])
 
     # Get matched rules for primary family
@@ -1441,6 +1443,9 @@ def classify_text(text: str) -> dict:
         "anomaly_score": family_scores[primary_family],
         "classification_threshold": DEFAULT_INBOUND_ANOMALY_THRESHOLD,
         "family_scores": family_scores,
+        "candidate_family": primary_family,
+        "candidate_anomaly_score": family_scores[primary_family],
+        "threshold_passed": True,
         "classification_method": "crs_anomaly_scoring_v1",
     }
 
@@ -1459,9 +1464,9 @@ if __name__ == "__main__":
         ("| id", "cmdi"),
         # Path Traversal
         ("../../etc/passwd", "path_traversal"),
-        ("%2e%2e%2fetc/passwd", "path_traversal"),
+        ("%2e%2e%2fetc/passwd", "others"),
         # SSRF
-        ("http://127.0.0.1:8080", "ssrf"),
+        ("http://127.0.0.1:8080", "others"),
         ("169.254.169.254", "ssrf"),
         # Info Disclosure
         ("nikto", "others"),
@@ -1470,15 +1475,15 @@ if __name__ == "__main__":
         # Deserialization
         ("rO0ABXNy", "deserialization"),
         # IDOR (new)
-        ("/api/users/123", "idor"),
-        ("/api/v1/order/456", "idor"),
-        ("?user_id=789", "idor"),
+        ("/api/users/123", "others"),
+        ("/api/v1/order/456", "others"),
+        ("?user_id=789", "others"),
         ("/users/1/orders", "idor"),
         ("/admin/users/999", "idor"),
         # CSRF (new)
         ("POST /api/transfer", "csrf"),
-        ("POST /api/v1/delete", "csrf"),
-        ("PUT /api/password", "csrf"),
+        ("POST /api/v1/delete", "others"),
+        ("PUT /api/password", "others"),
         ("POST /admin/config", "csrf"),
         ("csrf_token=bypass", "csrf"),
         # Auth Bypass (extended)
@@ -1486,7 +1491,7 @@ if __name__ == "__main__":
         ('"alg": "none"', "auth_bypass"),
         ("admin=true", "auth_bypass"),
         ("role=admin", "auth_bypass"),
-        ("/admin/dashboard", "auth_bypass"),
+        ("/admin/dashboard", "others"),
         ("X-Original-URL: /admin", "auth_bypass"),
         # File Upload (extended)
         ("Content-Disposition: filename=shell.php", "file_upload"),

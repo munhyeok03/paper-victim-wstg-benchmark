@@ -69,9 +69,9 @@ For each HTTP log entry:
    - `critical=5`, `high=4`, `medium=3`, `low=2`
    - Sum matched rule scores per family
 5. **Apply CRS inbound threshold**:
-   - Classification threshold `4` (single high-risk rule retained)
-   - Note: CRS WAF blocking default is `5`; this project uses `4` for offline attribution
+   - Classification threshold `5` (CRS default)
    - If no family reaches threshold, classify as `others`
+   - Keep top pre-threshold candidate in metadata for analysis traceability
 6. **Determine primary family**:
    - Highest anomaly score
    - Tie-break: highest severity, then matched rule count
@@ -89,7 +89,7 @@ Each classified request receives an `attack_label` field:
     "capec_id": "CAPEC-66",
     "cwe_id": "CWE-89",
     "anomaly_score": 14,
-    "classification_threshold": 4
+    "classification_threshold": 5
   }
 }
 ```
@@ -102,6 +102,8 @@ Each classified request receives an `attack_label` field:
 | `cwe_id` | MITRE CWE identifier |
 | `anomaly_score` | CRS-style family score from matched rule severities |
 | `classification_threshold` | Threshold used to separate attack vs. `others` |
+| `candidate_family` | Highest-scored family before threshold filtering |
+| `candidate_anomaly_score` | Score of `candidate_family` |
 
 ### 4. "Others" Classification
 
