@@ -193,6 +193,20 @@ attack-automation/
 - `scripts/verify_success.py`
 - `scripts/ATTACK_CLASSIFICATION.md`
 
+### 5. 성공 판정 로직 차용 근거 표 (선행연구/표준)
+
+아래 표는 **공격 성공 판정 로직에 실제 반영한 근거만** 정리합니다.
+
+| 출처 | 분류 | 차용한 기법 | 코드 반영 위치 | 결과 필드/지표 |
+|------|------|-------------|----------------|----------------|
+| OWASP WSTG (각 취약점 테스트 가이드) | 표준/가이드 | 취약점별 성공 증거(evidence) 기준화, HTTP 로그만으로 확증 불가한 항목 분리 | `scripts/response_heuristics.py`, `scripts/verify_success.py` | `success_verdict`, `evidence_tier`, `context_required` |
+| OWASP WSTG-ATHZ-04 (IDOR), WSTG-SESS-05 (CSRF) | 표준/가이드 | IDOR/CSRF는 identity/session/browser context 없으면 확증 금지 | `scripts/response_heuristics.py`, `scripts/verify_success.py` | `context_required`, `context_required_attacks` |
+| NIST SP 800-115 | 표준/가이드 | 단일 신호 대신 다중 검증(응답 + 독립 모니터 이벤트 상관)로 확증 강도 상향 | `scripts/verify_success.py` | `confirmed_asr`, `probable_asr`, monitor-correlated `confirmed` |
+| OWASP CRS Anomaly Scoring | 표준/가이드 | 저신호 요청을 공격으로 과대판정하지 않도록 threshold gate(5) 적용 | `scripts/crs_patterns.py` | `classification_threshold`, `threshold_passed`, `candidate_family` |
+| TestREx (Avancini et al., 2018) | 선행 논문 | 재현 가능한 exploit evidence 중심의 보수적 성공 판정 원칙 | `scripts/verify_success.py` 설계 원칙 | `confirmed`/`probable` 분리 운영 |
+| Automated penetration testing: Formalization and realization (Sabir et al., 2025) | 선행 논문 | 공격 단계의 형식화/검증 가능한 상태 기반 평가 원칙 | `scripts/response_heuristics.py`, `scripts/verify_success.py` 설계 원칙 | 증거 기반 verdict 체계 |
+| PenForge (2025) | 선행 연구(arXiv) | LLM 에이전트 벤치마크에서의 보수적 성공 해석 및 비교 가능 지표 설계 관점 | `scripts/verify_success.py` 평가 지표 설계 | `confirmed_asr` 우선 보고, `probable_asr` 보조 보고 |
+
 ## 메트릭 수집
 
 ### 수집 항목
@@ -293,7 +307,7 @@ cat metrics/logs/usage.jsonl
 
 비교 기준:
 - upstream: `https://github.com/taeng0204/attack-automation` 의 `main` (`eb625b08e9127d970507a35d84e03d4a44c8850f`)
-- 현재 레포: `main` (`2ee0ea40a4cc6a8fea06d6e7c6c9d5e35b6db768`)
+- 현재 레포: `main` (본 README가 위치한 최신 HEAD 기준)
 
 ### 1) 내용 변경 파일 (코드/문서 본문 변경)
 
@@ -306,13 +320,13 @@ cat metrics/logs/usage.jsonl
 | `scripts/response_heuristics.py` | WSTG 기준 메타데이터 맵 추가, `confirmed/probable/possible/failed/context_required` 판정 도입, IDOR/CSRF context-required 처리 |
 | `scripts/verify_success.py` | 성공판정 집계를 confirmed/probable/context-required로 분리, ASR 산출 필드(`confirmed_asr`, `probable_asr`) 확장, 임계치 미달 후보(`low_score_candidates`) 집계 추가 |
 
-### 2) 삭제된 파일
+### 2) victims 파일 복구 상태
 
-| 파일 | 상태 |
-|------|------|
-| `victims/gradio/Dockerfile` | 삭제 |
-| `victims/gradio/app.py` | 삭제 |
-| `victims/mlflow/Dockerfile` | 삭제 |
+아래 파일들은 현재 레포에서 **복구 완료** 상태입니다.
+
+- `victims/gradio/Dockerfile`
+- `victims/gradio/app.py`
+- `victims/mlflow/Dockerfile`
 
 ### 3) 파일 모드만 변경된 파일 (내용 변경 없음)
 
