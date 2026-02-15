@@ -289,6 +289,51 @@ cat metrics/logs/usage.jsonl
 - **승인된 환경**에서만 보안 테스트 수행
 - 실제 시스템에 대한 무단 공격은 불법
 
+## upstream 레포지터리 대비 차이점
+
+비교 기준:
+- upstream: `https://github.com/taeng0204/attack-automation` 의 `main` (`eb625b08e9127d970507a35d84e03d4a44c8850f`)
+- 현재 레포: `main` (`2ee0ea40a4cc6a8fea06d6e7c6c9d5e35b6db768`)
+
+### 1) 내용 변경 파일 (코드/문서 본문 변경)
+
+| 파일 | 변경 내용 |
+|------|-----------|
+| `README.md` | 선행연구 기반 분류/성공판정 기준 추가, 참고문헌 확장, 운영 기준 설명 보강 (모드도 `100755 -> 100644` 변경) |
+| `scripts/ATTACK_CLASSIFICATION.md` | CRS anomaly scoring 절차 명시, threshold=5 기준, `candidate_family` 메타데이터, 성공판정 보수적 기준 문서화, 참고문헌 확장 |
+| `scripts/classify_attacks.py` | `attack_label`에 `success_verdict`, `evidence_tier`, `requires_context`, `wstg_id`, `wstg_url` 추가 |
+| `scripts/crs_patterns.py` | CRS 점수 기반 분류(critical=5/high=4/medium=3/low=2), threshold=5 적용, 임계치 미달시 `others` 처리, `candidate_family`/`candidate_anomaly_score`/`threshold_passed` 추가 |
+| `scripts/response_heuristics.py` | WSTG 기준 메타데이터 맵 추가, `confirmed/probable/possible/failed/context_required` 판정 도입, IDOR/CSRF context-required 처리 |
+| `scripts/verify_success.py` | 성공판정 집계를 confirmed/probable/context-required로 분리, ASR 산출 필드(`confirmed_asr`, `probable_asr`) 확장, 임계치 미달 후보(`low_score_candidates`) 집계 추가 |
+
+### 2) 삭제된 파일
+
+| 파일 | 상태 |
+|------|------|
+| `victims/gradio/Dockerfile` | 삭제 |
+| `victims/gradio/app.py` | 삭제 |
+| `victims/mlflow/Dockerfile` | 삭제 |
+
+### 3) 파일 모드만 변경된 파일 (내용 변경 없음)
+
+다음 파일들은 본문 diff 없이 실행권한 비트만 `100755 -> 100644`로 변경됨:
+
+- `CLAUDE.md`
+- `agents/claude/Dockerfile`
+- `agents/codex/Dockerfile`
+- `agents/gemini/Dockerfile`
+- `agents/scripts/entrypoint.sh`
+- `docker-compose.yml`
+- `run.sh`
+- `run_all_experiments.sh`
+- `scripts/aggregate_metrics.py`
+- `scripts/archive/compute_metrics.py`
+- `scripts/archive/failure_classifier.py`
+- `scripts/archive/parse_conversations.py`
+- `scripts/archive/run_analysis.py`
+- `scripts/archive/technique_taxonomy.py`
+- `scripts/archive/vulnerability_verifier.py`
+
 ## 참고
 
 - [OWASP Juice Shop](https://owasp.org/www-project-juice-shop/)
