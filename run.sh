@@ -39,6 +39,19 @@ CLAUDE_MODEL="claude-opus-4-5-20251101"
 CODEX_MODEL="gpt-5.2-codex"
 GEMINI_MODEL="gemini-3-pro-preview"
 
+# Git Bash/MSYS will auto-convert env var values that look like POSIX paths (e.g., "/foo")
+# into Windows paths (e.g., "C:/Program Files/Git/foo") when launching Windows executables
+# like `docker.exe`. For container-internal paths, we must preserve the original value.
+if [[ -n "${MSYSTEM:-}" ]]; then
+    MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:-}"
+    for _v in OUTPUT_FORMAT_FILE VICTIM_APP_ROOT; do
+        if [[ ";${MSYS2_ENV_CONV_EXCL};" != *";${_v};"* ]]; then
+            MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:+${MSYS2_ENV_CONV_EXCL};}${_v}"
+        fi
+    done
+    export MSYS2_ENV_CONV_EXCL
+fi
+
 # Print colored message
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
@@ -434,10 +447,19 @@ result = {
     ]
 }
 print(json.dumps(result, indent=2))
-" > "./${SESSION_DIR}/analysis/${agent}_challenges.json" 2>/dev/null
+                " > "./${SESSION_DIR}/analysis/${agent}_challenges.json" 2>/dev/null
 
                 local solved_count
-                solved_count=$(jq '.solved_count' "./${SESSION_DIR}/analysis/${agent}_challenges.json" 2>/dev/null || echo "0")
+                solved_count=$(
+                    python3 -c "import json,sys; p=sys.argv[1]
+try:
+    with open(p,'r',encoding='utf-8') as f: d=json.load(f)
+    v=d.get('solved_count') or 0
+    print(int(v))
+except Exception:
+    print(0)
+" "./${SESSION_DIR}/analysis/${agent}_challenges.json" 2>/dev/null || echo "0"
+                )
                 log_info "[$agent] Challenges solved: $solved_count"
             else
                 log_warn "[$agent] Could not query challenge API at localhost:${host_port}"
@@ -468,9 +490,50 @@ extract_metrics() {
 
     # Extract session-specific usage logs
     if [[ -f "./metrics/logs/_tmp_usage.jsonl" ]]; then
-        jq -c --arg s "$SESSION_START_TIME" --arg e "$SESSION_END_TIME" \
-            'select(.timestamp >= $s and .timestamp <= $e)' \
-            "./metrics/logs/_tmp_usage.jsonl" > "./${SESSION_DIR}/api-logs/usage.jsonl" 2>/dev/null || true
+        python3 -c "import sys, json
+from datetime import datetime
+
+s = sys.argv[1]
+e = sys.argv[2]
+in_path = sys.argv[3]
+
+def parse_ts(ts: str):
+    if not ts:
+        return None
+    for fmt in (\"%Y-%m-%dT%H:%M:%S.%fZ\", \"%Y-%m-%dT%H:%M:%SZ\", \"%Y-%m-%dT%H:%M:%S.%f\", \"%Y-%m-%dT%H:%M:%S\"):
+        try:
+            return datetime.strptime(ts, fmt)
+        except ValueError:
+            pass
+    try:
+        t = ts[:-1] if ts.endswith(\"Z\") else ts
+        return datetime.fromisoformat(t)
+    except ValueError:
+        return None
+
+S = parse_ts(s)
+E = parse_ts(e)
+
+with open(in_path, 'r', encoding='utf-8', errors='replace') as f:
+    for raw in f:
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        ts = obj.get('timestamp')
+        if isinstance(ts, str):
+            t = parse_ts(ts)
+            if S is not None and E is not None and t is not None:
+                if S <= t <= E:
+                    sys.stdout.write(raw)
+            else:
+                # Fallback: lexical compare for ISO-ish strings (keeps behavior close to jq)
+                if s <= ts <= e:
+                    sys.stdout.write(raw)
+" "$SESSION_START_TIME" "$SESSION_END_TIME" "./metrics/logs/_tmp_usage.jsonl" > "./${SESSION_DIR}/api-logs/usage.jsonl" 2>/dev/null || true
         rm -f "./metrics/logs/_tmp_usage.jsonl"
         log_info "Session usage log saved to ./${SESSION_DIR}/api-logs/usage.jsonl"
     fi
@@ -989,8 +1052,23 @@ PYEOF
     log_step "Extracting agent conversation logs..."
     if [[ -f "./${SESSION_DIR}/api-logs/usage.jsonl" ]]; then
         for agent in "${AGENTS[@]}"; do
-            jq -c --arg a "$agent" 'select(.agent == $a)' \
-                "./${SESSION_DIR}/api-logs/usage.jsonl" > "./${SESSION_DIR}/api-logs/${agent}_conversations.jsonl" 2>/dev/null || true
+            python3 -c "import sys, json
+
+agent = sys.argv[1]
+in_path = sys.argv[2]
+
+with open(in_path, 'r', encoding='utf-8', errors='replace') as f:
+    for raw in f:
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if obj.get('agent') == agent:
+            sys.stdout.write(raw)
+" "$agent" "./${SESSION_DIR}/api-logs/usage.jsonl" > "./${SESSION_DIR}/api-logs/${agent}_conversations.jsonl" 2>/dev/null || true
             if [[ -s "./${SESSION_DIR}/api-logs/${agent}_conversations.jsonl" ]]; then
                 log_info "Agent conversations saved to ./${SESSION_DIR}/api-logs/${agent}_conversations.jsonl"
             else
@@ -1213,14 +1291,42 @@ except Exception as e:
             has_challenges=true
             local solved_count
             local total_count
-            solved_count=$(jq -r '.solved_count // 0' "./${SESSION_DIR}/analysis/${agent}_challenges.json" 2>/dev/null || echo "0")
-            total_count=$(jq -r '.total_challenges // 0' "./${SESSION_DIR}/analysis/${agent}_challenges.json" 2>/dev/null || echo "0")
+            solved_count=$(
+                python3 -c "import json,sys; p=sys.argv[1]
+try:
+    with open(p,'r',encoding='utf-8') as f: d=json.load(f)
+    v=d.get('solved_count') or 0
+    print(int(v))
+except Exception:
+    print(0)
+" "./${SESSION_DIR}/analysis/${agent}_challenges.json" 2>/dev/null || echo "0"
+            )
+            total_count=$(
+                python3 -c "import json,sys; p=sys.argv[1]
+try:
+    with open(p,'r',encoding='utf-8') as f: d=json.load(f)
+    v=d.get('total_challenges') or 0
+    print(int(v))
+except Exception:
+    print(0)
+" "./${SESSION_DIR}/analysis/${agent}_challenges.json" 2>/dev/null || echo "0"
+            )
 
             if [[ "$solved_count" != "0" ]]; then
                 echo -e "  ${GREEN}$agent${NC}: $solved_count/$total_count challenges solved"
                 # Show solved challenge names
-                jq -r '.solved_challenges[]? | "    - \(.name) (\(.category))"' \
-                    "./${SESSION_DIR}/analysis/${agent}_challenges.json" 2>/dev/null | head -5
+                python3 -c "import json,sys
+p=sys.argv[1]
+try:
+    with open(p,'r',encoding='utf-8') as f: d=json.load(f)
+    items = d.get('solved_challenges') or []
+    for c in items[:5]:
+        name = c.get('name') or ''
+        cat = c.get('category') or ''
+        print(f'    - {name} ({cat})')
+except Exception:
+    pass
+" "./${SESSION_DIR}/analysis/${agent}_challenges.json" 2>/dev/null | head -5
                 local more_count=$((solved_count - 5))
                 if [[ $more_count -gt 0 ]]; then
                     echo "    ... and $more_count more"
