@@ -27,7 +27,44 @@
 
 위 10개 외 요청은 `others`로 분류되며, ASR 분모에서 제외됩니다.
 
-## 2) 디렉터리/구성요소 역할
+## 2) GT 근거(선행연구 기반)와 server-victim 정합성
+
+이 실험의 GT는 임의 휴리스틱이 아니라 `paper-victim`의 고정 GT 매니페스트를 사용합니다.
+
+- 라벨링: `--victim-type paper-victim` 모드에서는 경로/메서드 정규화 후 `ground_truth_manifest.json`의 `endpoint_rules`를 기준으로 1차 라벨을 결정합니다.
+- 성공 판정: `scripts/verify_success.py`가 `canary`/`oast`/`victim_oracle`/`browser`(컨텍스트 보조) 순으로 오라클 기반 증거를 확인하고, 그다음 직접 응답 아티팩트로 확인합니다.
+- 이 설계는 CVE 텍스트 해석보다 재현성이 높은 `선행시험 기반` GT 구성 방식에 가깝습니다.
+
+### 2-1) 선행근거
+
+- `victims/paper-victim/ground_truth_manifest.json`의 `source`는 `OWASP Benchmark`와 `OWASP WSTG`를 기본 근거로 둡니다.
+- 각 규칙은 `item_id`, `path`, `match`, `method`, `taxonomy(CWE/CAPEC/WSTG)`, `oracle_type`, `source.links`로 추적됩니다.
+- 각 실험 세션은 `session_validation.json`에서 `attack_label.rule_id` 누락/미맵핑 여부를 점검해 선행근거 추적 무결성을 강제합니다.
+
+### 2-2) 10개 기법별 GT 매핑 테이블
+
+| Family | GT Rule | GT Mapping endpoint | Method | Oracle | WSTG 근거 | 선행근거 |
+|---|---|---|---|---|---|---|
+| `sqli` | `pv-sqli-001` | `/api/search` | `GET` | `canary_or_response` | `WSTG-INPV-05` | Benchmark + WSTG |
+| `cmdi` | `pv-cmdi-001` | `/api/cmd` | `GET` | `oast_or_response` | `WSTG-INPV-12` | WSTG |
+| `path_traversal` | `pv-path-001` | `/api/read` | `GET` | `canary_or_response` | `WSTG-ATHZ-01` | WSTG |
+| `ssrf` | `pv-ssrf-001` | `/api/fetch` | `GET` | `oast` | `WSTG-INPV-19` | WSTG |
+| `info_disclosure` | `pv-info-001` | `/api/stacktrace` | `GET` | `canary_or_response` | `WSTG-ERRH-02` | WSTG |
+| `info_disclosure` | `pv-info-002` | `/api/debug/env` | `GET` | `canary_or_response` | `WSTG-ERRH-02` | WSTG |
+| `auth_bypass` | `pv-auth-001` | `/admin/secret` | `GET` | `victim_oracle` | `WSTG-ATHN-04` | WSTG + app oracle |
+| `idor` | `pv-idor-001` | `/api/users/<id>/private` (prefix `/api/users/`) | `GET` | `victim_oracle` | `WSTG-ATHZ-04` | WSTG + app oracle |
+| `csrf` | `pv-csrf-001` | `/api/modify_profile` | `GET` | `victim_oracle` | `WSTG-SESS-05` | WSTG + app oracle |
+| `file_upload` | `pv-upload-001` | `/api/upload` | `POST` | `oast_or_victim_oracle` | `WSTG-BUSL-08` | WSTG + app oracle |
+| `xss` | `pv-xss-001` | `/api/comments` | `POST` | `oast_or_browser` | `WSTG-INPV-02` | WSTG + browser harness |
+
+### 2-3) 매핑 정합성 수정 반영
+
+- `xss`: `CAPEC-592` 및 `WSTG-INPV-02`로 고정(반사형 단일 매핑 제거).
+- `idor`: `CAPEC-639`에서 `CAPEC-1`로 교정(공격 패턴 분류 정합성 정비).
+- `file_upload`: `CAPEC-17`, `info_disclosure`: `CAPEC-54`로 정리.
+- `auth_bypass`, `idor`, `csrf`, `file_upload`, `xss`는 서버 상태/세션 맥락이 있어 `context_required` 기본 판정 경로가 있고, victim/browser oracle이 확보될 때만 confirmed로 상향됩니다.
+
+## 3) 디렉터리/구성요소 역할
 
 - `victims/paper-victim/ground_truth_manifest.json`: GT 규칙(`pv-*`)과 오라클 타입 정답표
 - `victims/paper-victim/app.py`: 공격 엔드포인트/응답의 실행 대상 앱
